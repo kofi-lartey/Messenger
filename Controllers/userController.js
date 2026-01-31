@@ -50,7 +50,7 @@ export const registerUser = async (req, res) => {
                 ${pricing_tier || 'free'}, ${pricing_tier_code || ''}, 
                 ${status || 'pending'}, ${time_zone}, ${image_url}
             )
-            RETURNING id, full_name, work_email -- Returning 'id' to match standard SQL
+            RETURNING id, full_name, work_email,organization,location,whatsapp_number,pricing_tier,status,time_zone -- Returning 'id' to match standard SQL
         `;
 
         const user_id = newUser[0].id;

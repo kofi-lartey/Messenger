@@ -22,8 +22,12 @@ const whatsappClient = new Client({
 });
 
 whatsappClient.on('qr', (qr) => {
-    console.log('✨ SCAN THIS QR CODE:');
-    qrcode.generate(qr, { small: false });
+    console.log('--- ACTION REQUIRED: SCAN QR CODE ---');
+
+    // Setting small: true is the trick for web-based logs
+    qrcode.generate(qr, { small: true });
+
+    console.log('--- IF THE QR LOOKS BROKEN, ZOOM OUT YOUR BROWSER ---');
 });
 
 whatsappClient.on('ready', () => {

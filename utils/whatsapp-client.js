@@ -4,27 +4,27 @@ import qrcode from 'qrcode-terminal';
 
 export let isWhatsAppReady = false;
 
-// Auto-detect environment
-const isRender = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
+const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
+        // We use the path Render showed in your successful build log
+        executablePath: isRender
+            ? '/opt/render/.cache/puppeteer/chrome/linux-144.0.7559.96/chrome-linux64/chrome'
+            : undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-extensions',
-            // Optimized for Render's limited resources
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }
 });
 
-// QR Code Logic
 whatsappClient.on('qr', (qr) => {
-    console.log('--- ACTION REQUIRED: SCAN QR CODE ---');
+    console.log('✨ SCAN THIS QR CODE:');
     qrcode.generate(qr, { small: false });
 });
 

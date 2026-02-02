@@ -6,6 +6,8 @@ import { userRouter } from './Routers/userRouter.js';
 
 
 const app = express();
+// Add this line to fix the Rate Limit error
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(cors());
 

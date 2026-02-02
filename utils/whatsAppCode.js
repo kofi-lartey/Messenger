@@ -1,5 +1,8 @@
 import axios from 'axios';
 import { INFOBIP_API_KEY, INFOBIP_BASE_URL, INFOBIP_SENDER_NUMBER } from '../Config/env.js';
+import { whatsappClient } from './whatsapp-client.js';
+
+
 
 /**
  * Sends a 6-digit WhatsApp verification code via Infobip
@@ -72,5 +75,23 @@ export const sendVerificationCode = async (whatsapp_number) => {
 
         // Fallback: We still return vCode so the user isn't stuck
         return vCode;
+    }
+};
+
+
+
+export const sendWhatsAppVerificationCode = async (number, code) => {
+    try {
+        // Format the number to WhatsApp ID format
+        const chatId = `${number.replace(/\D/g, '')}@c.us`;
+        
+        const message = `*Your Messenger Verification Code*\n\nYour code is: *${code}*\n\nThis code will expire in 10 minutes. Please do not share this with anyone.`;
+
+        await whatsappClient.sendMessage(chatId, message);
+        console.log(`📲 Verification code sent to WhatsApp: ${number}`);
+        return { success: true };
+    } catch (error) {
+        console.error("❌ WhatsApp Code Error:", error.message);
+        return { success: false, error: error.message };
     }
 };

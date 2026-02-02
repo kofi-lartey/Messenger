@@ -1,6 +1,6 @@
 
 
-export function generateWhatsAppCode() {
+export function generateEmailCode() {
     // Generate 6 random digits (000000 to 999999)
     // Math.random() is suitable here because the database UNIQUE constraint 
     // is the ultimate safety net against collisions.

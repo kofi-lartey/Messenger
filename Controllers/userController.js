@@ -3,6 +3,8 @@ import { sql } from '../Config/db.js';
 import { SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { sendVerificationCode } from '../utils/whatsAppCode.js';
+import { sendVerificationEmail } from '../utils/email.js';
+import { generateEmailCode } from '../utils/generatedToken.js';
 
 
 export const registerUser = async (req, res) => {
@@ -13,7 +15,7 @@ export const registerUser = async (req, res) => {
             pricing_tier_code, status, time_zone, image_url
         } = req.body;
 
-        // Validation
+        // 1. Validation
         if (!full_name || !work_email || !password || !whatsapp_number) {
             return res.status(400).json({
                 message: 'Full name, email, password, and WhatsApp number are required'
@@ -31,12 +33,14 @@ export const registerUser = async (req, res) => {
         // 3. Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 4. GENERATE AND SEND WHATSAPP CODE
-        // We call this before the INSERT so we have the code ready to save
-        const vCode = await sendVerificationCode(whatsapp_number);
+        // 4. Generate Code & Send Email
+        // Generate a 6-digit code here so we can pass it to both the Email and the DB
+        const vCode = generateEmailCode();
+
+        // We trigger the email sending (Resend)
+        await sendVerificationEmail(work_email, vCode);
 
         // 5. Create newUser in Database
-        // Note: Check your column names! (I used the snake_case ones from the SQL script)
         const newUser = await sql`
             INSERT INTO users (
                 full_name, work_email, organization, password, 
@@ -50,35 +54,30 @@ export const registerUser = async (req, res) => {
                 ${pricing_tier || 'free'}, ${pricing_tier_code || ''}, 
                 ${status || 'pending'}, ${time_zone}, ${image_url}
             )
-            RETURNING id, full_name, work_email,organization,location,whatsapp_number,pricing_tier,status,time_zone -- Returning 'id' to match standard SQL
+            RETURNING id, full_name, work_email, organization, location, whatsapp_number, pricing_tier, status, time_zone
         `;
 
         const user_id = newUser[0].id;
 
-        // 6. Generating token
+        // 6. Generating JWT token
         const token = jwt.sign(
             { id: user_id },
             SECRET,
             { expiresIn: '1h' }
         );
 
-        console.log('New user registered:', newUser[0], token);
-
         return res.status(201).json({
             success: true,
-            message: 'User registered successfully and verification code sent to WhatsApp',
+            message: 'User registered successfully. Please check your email for the verification code.',
             token,
             user: newUser[0]
         });
 
     } catch (error) {
         console.error('Error registering user:', error);
-
-        // Handle unique constraint (email)
         if (error.code === '23505') {
             return res.status(400).json({ message: 'Email already in use' });
         }
-
         return res.status(500).json({ message: 'Internal server error' });
     }
 };
@@ -138,11 +137,11 @@ export const resendCode = async (req, res) => {
     try {
         // req.user is available because we use the 'authenticate' middleware
         const userId = req.user.user_id;
-        const userEmail = req.user.email;
+        const userEmail = req.user.work_email; // Ensure this matches your JWT/Request property
 
-        // 1. Fetch the user's phone number from the DB
+        // 1. Fetch the user's current status from the DB
         const userResult = await sql`
-            SELECT whatsapp_number, status FROM Users WHERE user_id = ${userId}
+            SELECT status FROM Users WHERE user_id = ${userId}
         `;
 
         if (userResult.length === 0) {
@@ -152,14 +151,17 @@ export const resendCode = async (req, res) => {
         const user = userResult[0];
 
         // 2. Optimization: Don't resend if they are already activated
-        if (user.status === 'activate') {
+        if (user.status === 'activate' || user.status === 'active') {
             return res.status(400).json({ message: "Account is already verified." });
         }
 
-        // 3. Generate and send a NEW code
-        const newVCode = await sendVerificationCode(user.whatsapp_number);
+        // 3. Generate a NEW code using your custom function
+        const newVCode = generateEmailCode();
 
-        // 4. Update the database with the new code
+        // 4. Send the NEW code via Resend Email
+        await sendVerificationEmail(userEmail, newVCode);
+
+        // 5. Update the database with the new code
         await sql`
             UPDATE Users 
             SET verification_code = ${newVCode} 
@@ -168,7 +170,7 @@ export const resendCode = async (req, res) => {
 
         return res.status(200).json({
             success: true,
-            message: "A new verification code has been sent to your WhatsApp."
+            message: "A new verification code has been sent to your email."
         });
 
     } catch (error) {

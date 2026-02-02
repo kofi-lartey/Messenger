@@ -13,7 +13,7 @@ const whatsappClient = new Client({
     puppeteer: {
         headless: true,
         // Only use the fixed path if we are on Render
-        executablePath: isRender ? process.env.PUPPETEER_EXECUTABLE_PATH : undefined,
+        // executablePath: isRender ? process.env.PUPPETEER_EXECUTABLE_PATH : undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

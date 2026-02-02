@@ -1,4 +1,17 @@
-.env
+# Dependencies
 node_modules/
-package-lock.json
-.wwebjs_auth/session
+
+# WhatsApp Session & Authentication (CRITICAL: Do not upload these)
+.wwebjs_auth/
+.wwebjs_cache/
+
+# Puppeteer Browser Cache (The Chrome browser you installed)
+.cache/
+
+# Environment Variables & Secrets
+.env
+
+# System Files & Logs
+logs/
+*.log
+.DS_Store

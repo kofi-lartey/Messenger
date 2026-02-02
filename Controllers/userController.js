@@ -115,7 +115,7 @@ export const verifyUser = async (req, res) => {
         // FIX 3: Table is 'users', column is 'id'
         await sql`
             UPDATE users 
-            SET status = 'active', verification_code = NULL 
+            SET status = 'activate', verification_code = NULL 
             WHERE id = ${userId}
         `;
 
@@ -129,6 +129,7 @@ export const verifyUser = async (req, res) => {
         return res.status(500).json({ message: 'Internal server error' });
     }
 }
+
 
 // regenerate verification code function
 export const resendCode = async (req, res) => {

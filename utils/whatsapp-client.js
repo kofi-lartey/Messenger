@@ -11,16 +11,19 @@ const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
+    qrMaxRetries: 10, // 👈 Keep the QR session alive for more refreshes
+    authTimeoutMs: 300000, // 👈 Give it 5 minutes to complete the link
     puppeteer: {
         headless: true,
-        protocolTimeout: 60000,
+        protocolTimeout: 300000, // Match the timeout
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
-            '--disable-extensions',
             '--disable-gpu',
+            '--disable-software-rasterizer', // Helps on low-resource environments
+            '--disable-extensions',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }

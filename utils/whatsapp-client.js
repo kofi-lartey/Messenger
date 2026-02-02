@@ -4,35 +4,45 @@ import qrcode from 'qrcode-terminal';
 
 export let isWhatsAppReady = false;
 
+// Render-specific check
 const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        // This looks for the env variable we just set
+        // Ensure this path matches what we set in your Render Env Vars
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
+            '--disable-extensions',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }
 });
 
+// Backup QR listener (in case pairing fails)
 whatsappClient.on('qr', (qr) => {
-    console.log('--- ACTION REQUIRED: SCAN QR CODE ---');
-
-    // Setting small: true is the trick for web-based logs
+    console.log('--- SCAN QR (OR USE PAIRING CODE) ---');
     qrcode.generate(qr, { small: true });
-
-    console.log('--- IF THE QR LOOKS BROKEN, ZOOM OUT YOUR BROWSER ---');
 });
 
 whatsappClient.on('ready', () => {
     console.log('✅ WhatsApp Engine is Ready');
     isWhatsAppReady = true;
+});
+
+whatsappClient.on('authenticated', async () => {
+    console.log('👍 WhatsApp Linked!');
+    // Note: To send the code automatically here, you'd need to track 
+    // which user just linked. Usually, it's easier to trigger this 
+    // from the frontend once they click "I have linked my device".
+});
+
+whatsappClient.on('disconnected', () => {
+    isWhatsAppReady = false;
 });
 
 whatsappClient.initialize();

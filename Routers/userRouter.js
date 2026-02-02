@@ -10,3 +10,4 @@ export const userRouter = Router();
 userRouter.post('/user/register', registerUser);
 userRouter.post('/verify', authenticate, verifyUser);
 userRouter.post('/resend-code', authenticate, resendLimiter, resendCode);
+userRouter.post('/link-phone', authenticate, resendLimiter, resendCode); // Example: /auth/link-phone?phone=233555000000

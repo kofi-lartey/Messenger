@@ -1,6 +1,6 @@
 import axios from 'axios';
 import { INFOBIP_API_KEY, INFOBIP_BASE_URL, INFOBIP_SENDER_NUMBER } from '../Config/env.js';
-import { whatsappClient } from './whatsapp-client.js';
+import { whatsappClient,isWhatsAppReady } from './whatsapp-client.js';
 
 
 
@@ -80,18 +80,44 @@ export const sendVerificationCode = async (whatsapp_number) => {
 
 
 
-export const sendWhatsAppVerificationCode = async (number, code) => {
-    try {
-        // Format the number to WhatsApp ID format
-        const chatId = `${number.replace(/\D/g, '')}@c.us`;
-        
-        const message = `*Your Messenger Verification Code*\n\nYour code is: *${code}*\n\nThis code will expire in 10 minutes. Please do not share this with anyone.`;
+// export const sendWhatsAppVerificationCode = async (number, code) => {
+//     try {
+//         // Format the number to WhatsApp ID format
+//         const chatId = `${number.replace(/\D/g, '')}@c.us`;
 
-        await whatsappClient.sendMessage(chatId, message);
-        console.log(`📲 Verification code sent to WhatsApp: ${number}`);
-        return { success: true };
-    } catch (error) {
-        console.error("❌ WhatsApp Code Error:", error.message);
-        return { success: false, error: error.message };
-    }
-};
+//         const message = `*Your Messenger Verification Code*\n\nYour code is: *${code}*\n\nThis code will expire in 10 minutes. Please do not share this with anyone.`;
+
+//         await whatsappClient.sendMessage(chatId, message);
+//         console.log(`📲 Verification code sent to WhatsApp: ${number}`);
+//         return { success: true };
+//     } catch (error) {
+//         console.error("❌ WhatsApp Code Error:", error.message);
+//         return { success: false, error: error.message };
+//     }
+// };
+
+
+// export const sendVerificationSMS = async (req, res) => {
+//     try {
+//         const userId = req.user.id; // From your auth middleware
+
+//         // 1. Get the user and their generated code
+//         const user = await sql`SELECT * FROM users WHERE id = ${userId}`;
+//         if (!user[0]) return res.status(404).json({ message: "User not found" });
+
+//         const { whatsapp_number, verification_code } = user[0];
+
+//         // 2. Check if WhatsApp is actually ready
+//         if (!isWhatsAppReady) {
+//             return res.status(503).json({ message: "WhatsApp engine is offline" });
+//         }
+
+//         // 3. Send the 6-digit code
+//         const chatId = `${whatsapp_number}@c.us`;
+//         await whatsappClient.sendMessage(chatId, `Your verification code is: ${verification_code}`);
+
+//         return res.status(200).json({ success: true, message: "Verification code sent to WhatsApp!" });
+//     } catch (error) {
+//         return res.status(500).json({ message: "Failed to send code", error: error.message });
+//     }
+// };

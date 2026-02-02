@@ -43,8 +43,15 @@ whatsappClient.on('authenticated', async () => {
     // from the frontend once they click "I have linked my device".
 });
 
-whatsappClient.on('disconnected', () => {
+whatsappClient.on('disconnected', (reason) => {
+    console.log('WhatsApp disconnected:', reason);
     isWhatsAppReady = false;
+
+    // Attempt to re-initialize after 5 seconds
+    setTimeout(() => {
+        console.log('Attempting to restart WhatsApp Engine...');
+        whatsappClient.initialize();
+    }, 5000);
 });
 
 whatsappClient.initialize();

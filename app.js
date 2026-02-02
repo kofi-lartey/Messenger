@@ -3,6 +3,7 @@ import cors from 'cors';
 import { PGDATABASE, PORT } from './Config/env.js';
 import { sql } from './Config/db.js';
 import { userRouter } from './Routers/userRouter.js';
+import { isWhatsAppReady } from './utils/whatsapp-client.js';
 
 
 const app = express();
@@ -13,6 +14,16 @@ app.use(cors());
 
 // Routes
 app.use('/api/V1', userRouter);
+
+// Add this to your main server file
+
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'online',
+        whatsapp: isWhatsAppReady ? 'connected' : 'booting',
+        timestamp: new Date().toISOString()
+    });
+});
 
 // initialize db connections
 export const connectDB = async () => {

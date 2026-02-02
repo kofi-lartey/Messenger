@@ -86,39 +86,37 @@ export const verifyUser = async (req, res) => {
     try {
         const { code } = req.body;
 
-        // 1. Validation: Ensure a code was provided
         if (!code) {
             return res.status(400).json({ message: 'Verification code is required' });
         }
 
-        // 2. Access authenticated user info from the 'authenticate' middleware
-        // Using 'user_id' from req.user (as set in your middleware)
+        // Use req.user.id (mapped from your middleware)
         const userId = req.user.id;
 
-        // 3. Check if the code matches what's in the database
-        const user = await sql`
-            SELECT verification_code FROM Users WHERE user_id = ${userId}
+        // FIX 1: Table is lowercase 'users', column is 'id'
+        const userResult = await sql`
+            SELECT verification_code FROM users WHERE id = ${userId}
         `;
 
-        if (user.length === 0) {
+        if (userResult.length === 0) {
             return res.status(404).json({ message: 'User not found' });
         }
 
-        const storedCode = user[0].verification_code;
+        const storedCode = userResult[0].verification_code;
 
-        // 4. Compare the codes
-        if (code !== storedCode) {
+        // FIX 2: Convert both to strings to ensure '123456' === 123456
+        if (code.toString() !== storedCode.toString()) {
             return res.status(400).json({
                 success: false,
                 message: 'Invalid verification code'
             });
         }
 
-        // 5. If correct, update user status to 'activate' and clear the code
+        // FIX 3: Table is 'users', column is 'id'
         await sql`
-            UPDATE Users 
-            SET status = 'activate', verification_code = NULL 
-            WHERE user_id = ${userId}
+            UPDATE users 
+            SET status = 'active', verification_code = NULL 
+            WHERE id = ${userId}
         `;
 
         return res.status(200).json({
@@ -135,13 +133,13 @@ export const verifyUser = async (req, res) => {
 // regenerate verification code function
 export const resendCode = async (req, res) => {
     try {
-        // req.user is available because we use the 'authenticate' middleware
-        const userId = req.user.user_id;
-        const userEmail = req.user.work_email; // Ensure this matches your JWT/Request property
+        // req.user properties must match what you set in the middleware
+        const userId = req.user.id;
+        const userEmail = req.user.work_email;
 
-        // 1. Fetch the user's current status from the DB
+        // FIX: Table 'users', column 'id'
         const userResult = await sql`
-            SELECT status FROM Users WHERE user_id = ${userId}
+            SELECT status FROM users WHERE id = ${userId}
         `;
 
         if (userResult.length === 0) {
@@ -150,22 +148,19 @@ export const resendCode = async (req, res) => {
 
         const user = userResult[0];
 
-        // 2. Optimization: Don't resend if they are already activated
-        if (user.status === 'activate' || user.status === 'active') {
+        if (user.status === 'active') {
             return res.status(400).json({ message: "Account is already verified." });
         }
 
-        // 3. Generate a NEW code using your custom function
         const newVCode = generateEmailCode();
 
-        // 4. Send the NEW code via Resend Email
         await sendVerificationEmail(userEmail, newVCode);
 
-        // 5. Update the database with the new code
+        // FIX: Table 'users', column 'id'
         await sql`
-            UPDATE Users 
+            UPDATE users 
             SET verification_code = ${newVCode} 
-            WHERE user_id = ${userId}
+            WHERE id = ${userId}
         `;
 
         return res.status(200).json({

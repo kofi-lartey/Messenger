@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { registerUser, resendCode, verifyUser } from "../Controllers/userController.js";
+import { getPairingCode, registerUser, resendCode, verifyUser } from "../Controllers/userController.js";
 import { authenticate } from "../Middleware/auth.js";
 import { resendLimiter } from '../utils/rateLimiters.js';
 
@@ -10,4 +10,5 @@ export const userRouter = Router();
 userRouter.post('/user/register', registerUser);
 userRouter.post('/verify', authenticate, verifyUser);
 userRouter.post('/resend-code', authenticate, resendLimiter, resendCode);
-userRouter.post('/link-phone', authenticate, resendLimiter, resendCode); // Example: /auth/link-phone?phone=233555000000
+userRouter.post('/link-phone', authenticate, resendLimiter, resendCode); 
+userRouter.get('/get-pairing-code', authenticate, resendLimiter, getPairingCode);

@@ -31,17 +31,23 @@ export const registerUser = async (req, res) => {
         const vCode = generateEmailCode(); // This is the 6-digit code they will receive later
 
         // 4. Request Pairing Code (8-character code for linking)
-        // Inside registerUser...
+        // Helper to wait a few seconds
+        const delay = (ms) => new Promise(res => setTimeout(res, ms));
+
+        // Inside your registerUser function:
         let pairingCode = null;
-        try {
-            // Wait for the client to be fully ready before asking for a code
-            if (isWhatsAppReady) {
+        let retryCount = 0;
+
+        // Try to get the code, retrying up to 3 times if the client is still booting
+        while (retryCount < 3 && !pairingCode) {
+            try {
                 pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
-            } else {
-                console.log("Client not ready yet, code generation skipped.");
+                console.log(`Pairing code generated: ${pairingCode}`);
+            } catch (err) {
+                console.log(`Attempt ${retryCount + 1}: Client still booting, waiting...`);
+                await delay(5000); // Wait 5 seconds before retrying
+                retryCount++;
             }
-        } catch (err) {
-            console.error('WhatsApp Pairing Error:', err.message);
         }
 
         // 5. Security (Hash Password)
@@ -100,6 +106,26 @@ export const registerUser = async (req, res) => {
     } catch (error) {
         console.error('Registration Error:', error);
         return res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+};
+
+// GET /api/auth/get-pairing-code?phone=233531114795
+export const getPairingCode = async (req, res) => {
+    const { phone } = req.query;
+    const cleanedNumber = phone.replace(/\D/g, '');
+
+    if (!isWhatsAppReady) {
+        return res.status(503).json({ 
+            success: false, 
+            message: "WhatsApp is still starting up. Please wait 30 seconds and refresh." 
+        });
+    }
+
+    try {
+        const pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
+        res.json({ success: true, pairingCode });
+    } catch (err) {
+        res.status(500).json({ success: false, message: "Error generating code", error: err.message });
     }
 };
 

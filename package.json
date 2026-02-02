@@ -8,7 +8,7 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "postinstall":"PUPPETEER_CACHE_DIR=./.puppeteer_cache npx puppeteer browsers install chrome"
   },
   "keywords": [],
   "author": "",

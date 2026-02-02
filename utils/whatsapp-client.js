@@ -10,10 +10,8 @@ const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
-        // We use the path Render showed in your successful build log
-        executablePath: isRender
-            ? '/opt/render/.cache/puppeteer/chrome/linux-144.0.7559.96/chrome-linux64/chrome'
-            : undefined,
+        // This looks for the env variable we just set
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',

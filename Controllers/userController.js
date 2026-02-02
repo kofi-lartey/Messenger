@@ -3,8 +3,9 @@ import { sql } from '../Config/db.js';
 import { SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { generateEmailCode } from '../utils/generatedToken.js';
-import { isWhatsAppReady, whatsappClient } from '../utils/whatsapp-client.js';
+import { isWhatsAppReady, whatsappClient,latestQRCode } from '../utils/whatsapp-client.js';
 import { formatPhoneNumber } from '../utils/numberChecker.js';
+
 
 
 export const registerUser = async (req, res) => {
@@ -28,24 +29,20 @@ export const registerUser = async (req, res) => {
 
         // 3. Prepare WhatsApp Details
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
-        const vCode = generateEmailCode(); // This is the 6-digit code they will receive later
+        const vCode = generateEmailCode(); 
 
-        // 4. Request Pairing Code (8-character code for linking)
-        // Helper to wait a few seconds
+        // 4. Request Pairing Code with Retry Logic
         const delay = (ms) => new Promise(res => setTimeout(res, ms));
-
-        // Inside your registerUser function:
         let pairingCode = null;
         let retryCount = 0;
 
-        // Try to get the code, retrying up to 3 times if the client is still booting
         while (retryCount < 3 && !pairingCode) {
             try {
                 pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
                 console.log(`Pairing code generated: ${pairingCode}`);
             } catch (err) {
-                console.log(`Attempt ${retryCount + 1}: Client still booting, waiting...`);
-                await delay(5000); // Wait 5 seconds before retrying
+                console.log(`Attempt ${retryCount + 1}: Client booting or busy, waiting...`);
+                if (retryCount < 2) await delay(5000); 
                 retryCount++;
             }
         }
@@ -53,7 +50,7 @@ export const registerUser = async (req, res) => {
         // 5. Security (Hash Password)
         const hashedPassword = await bcrypt.hash(password, 10);
 
-        // 6. Database Insertion (Including verification_code)
+        // 6. Database Insertion
         const newUser = await sql`
             INSERT INTO users (
                 full_name, work_email, organization, password, 
@@ -70,35 +67,34 @@ export const registerUser = async (req, res) => {
             RETURNING * `;
 
         const user = newUser[0];
-        delete user.password; // ❌ Remove sensitive hash
+        delete user.password; 
 
         const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: '1h' });
 
         // 7. AUTO-SEND LOGIC
-        // Once the user links their device, the 'ready' event fires.
-        // We use .once so this only happens once for this registration.
         whatsappClient.once('ready', async () => {
             try {
                 const chatId = `${cleanedNumber}@c.us`;
                 await whatsappClient.sendMessage(chatId, `✅ Device Linked! Your verification code is: ${vCode}`);
                 console.log(`Auto-sent code to ${cleanedNumber}`);
             } catch (err) {
-                console.error('Auto-send failed. User might need to click "Resend":', err.message);
+                console.error('Auto-send failed:', err.message);
             }
         });
 
-        // 8. Return FULL Details (Except password)
+        // 8. Return Response with QR Code fallback
         return res.status(201).json({
             success: true,
-            message: 'Registration successful! Follow instructions to link WhatsApp.',
-            pairingCode: pairingCode,
+            message: 'Registration successful! Link your WhatsApp.',
             token,
             data: {
-                user: user, // Contains all details from the DB
+                pairingCode: pairingCode, // The 8-character string
+                qrCodeImage: latestQRCode, // The Base64 string from your client file
+                user: user,
                 instructions: {
-                    step1: "Link your WhatsApp using the Pairing Code provided.",
-                    step2: "As soon as you link, we will automatically message you the 6-digit verification code.",
-                    step3: "Enter that 6-digit code on the next screen to activate your account."
+                    option1: "Link using the pairingCode on your phone.",
+                    option2: "Scan the QR Code image if using Postman Visualize tab.",
+                    nextStep: "Once linked, check your WhatsApp for the 6-digit PIN."
                 }
             }
         });
@@ -108,53 +104,76 @@ export const registerUser = async (req, res) => {
         return res.status(500).json({ message: 'Internal server error', error: error.message });
     }
 };
-
 // GET /api/auth/get-pairing-code?phone=233531114795
 export const getPairingCode = async (req, res) => {
     try {
-        // 1. Get User ID from the middleware (req.user is set by your JWT protect middleware)
+        // 1. Get User ID from JWT middleware
         const userId = req.user.id;
 
-        // 2. Fetch the user's registered phone number from the database
+        // 2. Fetch user details
         const userResult = await sql`
-            SELECT whatsapp_number FROM users WHERE id = ${userId}
+            SELECT whatsapp_number, full_name FROM users WHERE id = ${userId}
         `;
 
         if (userResult.length === 0) {
             return res.status(404).json({ message: "User not found" });
         }
 
-        const phone = userResult[0].whatsapp_number;
+        const { whatsapp_number, full_name } = userResult[0];
 
-        // Ensure formatting (Ghana example: 053... -> 23353...)
-        let cleanedNumber = phone.replace(/\D/g, '');
+        // Ensure formatting (Ghana international format)
+        let cleanedNumber = whatsapp_number.replace(/\D/g, '');
         if (cleanedNumber.startsWith('0')) {
             cleanedNumber = '233' + cleanedNumber.substring(1);
         }
 
-        // 3. Check if WhatsApp Engine is ready
-        if (!isWhatsAppReady) {
+        // 3. Check Engine Status
+        if (!isWhatsAppReady && !latestQRCode) {
             return res.status(503).json({
                 success: false,
-                message: "WhatsApp engine is booting up. Please try again in 30 seconds."
+                status: "BOOTING",
+                message: "WhatsApp engine is starting. Please retry in 15 seconds."
             });
         }
 
-        // 4. Request the code
-        console.log(`Authenticated request: Generating code for ${cleanedNumber}`);
-        const pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
+        // If the engine is already linked, don't try to link again
+        if (isWhatsAppReady) {
+            return res.status(200).json({
+                success: true,
+                status: "CONNECTED",
+                message: "Device is already linked and ready!"
+            });
+        }
 
+        // 4. Generate Pairing Code (Text)
+        let pairingCode = null;
+        try {
+            console.log(`Generating pairing code for ${full_name} (${cleanedNumber})...`);
+            pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
+        } catch (pairErr) {
+            console.warn("Pairing code failed, falling back to QR only:", pairErr.message);
+        }
+
+        // 5. Final Response with both options
         return res.status(200).json({
             success: true,
-            pairingCode,
-            message: "Enter this code on your WhatsApp app."
+            status: "AWAITING_LINK",
+            data: {
+                pairingCode: pairingCode, // The 8-character string
+                qrCodeImage: latestQRCode, // The Base64 image for Postman Visualize
+                phoneNumber: cleanedNumber
+            },
+            instructions: {
+                option1: "Enter the pairingCode in WhatsApp > Linked Devices > Link with Phone Number",
+                option2: "Scan the QR code image if using a desktop browser or Postman Visualize"
+            }
         });
 
     } catch (err) {
         console.error("Pairing Auth Error:", err.message);
         return res.status(500).json({
             success: false,
-            message: "Failed to generate pairing code. Please try again later."
+            message: "Internal server error during pairing generation."
         });
     }
 };

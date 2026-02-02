@@ -1,8 +1,10 @@
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
-import qrcode from 'qrcode-terminal';
+import qrcodeTerminal from 'qrcode-terminal';
+import qrcodeImage from 'qrcode'; // Add this to your package.json: npm install qrcode
 
 export let isWhatsAppReady = false;
+export let latestQRCode = null; // 👈 Exported to be used in your controller
 
 // Render-specific check
 const isRender = process.env.RENDER === 'true';
@@ -12,7 +14,6 @@ const whatsappClient = new Client({
     puppeteer: {
         headless: true,
         protocolTimeout: 60000,
-        // Ensure this path matches what we set in your Render Env Vars
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
             '--no-sandbox',
@@ -25,27 +26,41 @@ const whatsappClient = new Client({
     }
 });
 
-// Backup QR listener (in case pairing fails)
-whatsappClient.on('qr', (qr) => {
-    console.log('--- SCAN QR (OR USE PAIRING CODE) ---');
-    qrcode.generate(qr, { small: true });
+// QR Logic
+whatsappClient.on('qr', async (qr) => {
+    console.log('--- NEW QR GENERATED ---');
+
+    // 1. Still show in terminal for debugging
+    qrcodeTerminal.generate(qr, { small: true });
+
+    // 2. Convert to Base64 so Postman can render it as an image
+    try {
+        latestQRCode = await qrcodeImage.toDataURL(qr);
+    } catch (err) {
+        console.error('Error generating Base64 QR:', err);
+        latestQRCode = qr; // Fallback to raw string
+    }
 });
 
 whatsappClient.on('ready', () => {
     console.log('✅ WhatsApp Engine is Ready');
     isWhatsAppReady = true;
+    latestQRCode = null; // Clear QR once connected
 });
 
-whatsappClient.on('authenticated', async () => {
-    console.log('👍 WhatsApp Linked!');
-    // Note: To send the code automatically here, you'd need to track 
-    // which user just linked. Usually, it's easier to trigger this 
-    // from the frontend once they click "I have linked my device".
+whatsappClient.on('authenticated', () => {
+    console.log('👍 WhatsApp Authenticated (Linking successful)');
+});
+
+whatsappClient.on('auth_failure', (msg) => {
+    console.error('❌ Auth Failure:', msg);
+    isWhatsAppReady = false;
 });
 
 whatsappClient.on('disconnected', (reason) => {
     console.log('WhatsApp disconnected:', reason);
     isWhatsAppReady = false;
+    latestQRCode = null;
 
     // Attempt to re-initialize after 5 seconds
     setTimeout(() => {

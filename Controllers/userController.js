@@ -93,7 +93,7 @@ export const verifyUser = async (req, res) => {
 
         // 2. Access authenticated user info from the 'authenticate' middleware
         // Using 'user_id' from req.user (as set in your middleware)
-        const userId = req.user.user_id;
+        const userId = req.user.id;
 
         // 3. Check if the code matches what's in the database
         const user = await sql`

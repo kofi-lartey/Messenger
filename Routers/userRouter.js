@@ -11,4 +11,4 @@ userRouter.post('/user/register', registerUser);
 userRouter.post('/verify', authenticate, verifyUser);
 userRouter.post('/resend-code', authenticate, resendLimiter, resendCode);
 userRouter.post('/link-phone', authenticate, resendLimiter, resendCode); 
-userRouter.get('/get-pairing-code', resendLimiter, getPairingCode);
+userRouter.get('/get-pairing-code',authenticate, resendLimiter, getPairingCode);

@@ -111,21 +111,51 @@ export const registerUser = async (req, res) => {
 
 // GET /api/auth/get-pairing-code?phone=233531114795
 export const getPairingCode = async (req, res) => {
-    const { phone } = req.query;
-    const cleanedNumber = phone.replace(/\D/g, '');
-
-    if (!isWhatsAppReady) {
-        return res.status(503).json({ 
-            success: false, 
-            message: "WhatsApp is still starting up. Please wait 30 seconds and refresh." 
-        });
-    }
-
     try {
+        // 1. Get User ID from the middleware (req.user is set by your JWT protect middleware)
+        const userId = req.user.id;
+
+        // 2. Fetch the user's registered phone number from the database
+        const userResult = await sql`
+            SELECT whatsapp_number FROM users WHERE id = ${userId}
+        `;
+
+        if (userResult.length === 0) {
+            return res.status(404).json({ message: "User not found" });
+        }
+
+        const phone = userResult[0].whatsapp_number;
+
+        // Ensure formatting (Ghana example: 053... -> 23353...)
+        let cleanedNumber = phone.replace(/\D/g, '');
+        if (cleanedNumber.startsWith('0')) {
+            cleanedNumber = '233' + cleanedNumber.substring(1);
+        }
+
+        // 3. Check if WhatsApp Engine is ready
+        if (!isWhatsAppReady) {
+            return res.status(503).json({
+                success: false,
+                message: "WhatsApp engine is booting up. Please try again in 30 seconds."
+            });
+        }
+
+        // 4. Request the code
+        console.log(`Authenticated request: Generating code for ${cleanedNumber}`);
         const pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
-        res.json({ success: true, pairingCode });
+
+        return res.status(200).json({
+            success: true,
+            pairingCode,
+            message: "Enter this code on your WhatsApp app."
+        });
+
     } catch (err) {
-        res.status(500).json({ success: false, message: "Error generating code", error: err.message });
+        console.error("Pairing Auth Error:", err.message);
+        return res.status(500).json({
+            success: false,
+            message: "Failed to generate pairing code. Please try again later."
+        });
     }
 };
 

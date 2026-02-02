@@ -11,6 +11,7 @@ const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: true,
+        protocolTimeout: 60000,
         // Ensure this path matches what we set in your Render Env Vars
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
@@ -18,6 +19,7 @@ const whatsappClient = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-extensions',
+            '--disable-gpu',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }

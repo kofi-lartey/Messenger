@@ -4,12 +4,8 @@ import { SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { generateEmailCode } from '../utils/generatedToken.js';
 import { isWhatsAppReady, whatsappClient } from '../utils/whatsapp-client.js';
+import { formatPhoneNumber } from '../utils/numberChecker.js';
 
-
-
-
-// Helpers
-const formatPhoneNumber = (number) => number.replace(/\D/g, '');
 
 export const registerUser = async (req, res) => {
     try {
@@ -35,9 +31,15 @@ export const registerUser = async (req, res) => {
         const vCode = generateEmailCode(); // This is the 6-digit code they will receive later
 
         // 4. Request Pairing Code (8-character code for linking)
+        // Inside registerUser...
         let pairingCode = null;
         try {
-            pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
+            // Wait for the client to be fully ready before asking for a code
+            if (isWhatsAppReady) {
+                pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
+            } else {
+                console.log("Client not ready yet, code generation skipped.");
+            }
         } catch (err) {
             console.error('WhatsApp Pairing Error:', err.message);
         }

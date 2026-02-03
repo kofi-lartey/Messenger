@@ -26,3 +26,5 @@ export const USE_WHATSAPP = process.env.USE_WHATSAPP === 'true';
 
 // Resend Configuration
 export const RESEND_API_KEY = process.env.RESEND_API_KEY;
+
+export const MY_SECRET_KEY = process.env.MY_SECRET_KEY;

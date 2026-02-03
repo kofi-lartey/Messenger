@@ -11,7 +11,7 @@ const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
-    qrMaxRetries: 10, // 👈 Keep the QR session alive for more refreshes
+    qrMaxRetries: 15, // 👈 Keep the QR session alive for more refreshes
     authTimeoutMs: 300000, // 👈 Give it 5 minutes to complete the link
     puppeteer: {
         headless: true,
@@ -24,6 +24,8 @@ const whatsappClient = new Client({
             '--disable-gpu',
             '--disable-software-rasterizer', // Helps on low-resource environments
             '--disable-extensions',
+            '--proxy-server="direct://"', // Skip proxy looking for better speed
+            '--proxy-bypass-list=*',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }

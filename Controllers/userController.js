@@ -1,9 +1,9 @@
 import bcrypt from 'bcrypt';
 import { sql } from '../Config/db.js';
-import { SECRET } from '../Config/env.js';
+import { MY_SECRET_KEY, SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { generateEmailCode } from '../utils/generatedToken.js';
-import { isWhatsAppReady, whatsappClient,latestQRCode } from '../utils/whatsapp-client.js';
+import { isWhatsAppReady, whatsappClient, latestQRCode } from '../utils/whatsapp-client.js';
 import { formatPhoneNumber } from '../utils/numberChecker.js';
 
 
@@ -29,7 +29,7 @@ export const registerUser = async (req, res) => {
 
         // 3. Prepare WhatsApp Details
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
-        const vCode = generateEmailCode(); 
+        const vCode = generateEmailCode();
 
         // 4. Request Pairing Code with Retry Logic
         const delay = (ms) => new Promise(res => setTimeout(res, ms));
@@ -42,7 +42,7 @@ export const registerUser = async (req, res) => {
                 console.log(`Pairing code generated: ${pairingCode}`);
             } catch (err) {
                 console.log(`Attempt ${retryCount + 1}: Client booting or busy, waiting...`);
-                if (retryCount < 2) await delay(5000); 
+                if (retryCount < 2) await delay(5000);
                 retryCount++;
             }
         }
@@ -67,7 +67,7 @@ export const registerUser = async (req, res) => {
             RETURNING * `;
 
         const user = newUser[0];
-        delete user.password; 
+        delete user.password;
 
         const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: '1h' });
 
@@ -344,3 +344,28 @@ export const checkStatus = (req, res) => {
 //         res.status(500).json({ error: "Failed to generate code. Is the client already linked?" });
 //     }
 // };
+
+
+// GET /api/auth/system-reset?key=YOUR_SECRET_PHRASE
+export const syatemReset = async (req, res) => {
+    const { key } = req.query;
+
+    if (key !== MY_SECRET_KEY) { // Simple protection
+        return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    try {
+        console.log("🔄 Manual Reset Triggered...");
+        isWhatsAppReady = false;
+
+        // Destroy the current session safely
+        await whatsappClient.destroy();
+
+        // Re-initialize from scratch
+        await whatsappClient.initialize();
+
+        res.json({ success: true, message: "WhatsApp Engine is restarting. Wait 30 seconds." });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+};

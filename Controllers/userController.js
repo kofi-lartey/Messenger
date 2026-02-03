@@ -350,7 +350,7 @@ export const checkStatus = (req, res) => {
 export const syatemReset = async (req, res) => {
     const { key } = req.query;
 
-    if (key !== MY_SECRET_KEY) { // Simple protection
+    if (key !== 'Pleaseyou5') { // Simple protection
         return res.status(401).json({ message: "Unauthorized" });
     }
 

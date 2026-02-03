@@ -1,10 +1,17 @@
 import pkg from 'whatsapp-web.js';
 const { Client, LocalAuth } = pkg;
 import qrcodeTerminal from 'qrcode-terminal';
-import qrcodeImage from 'qrcode'; // Add this to your package.json: npm install qrcode
+import qrcodeImage from 'qrcode';
 
+// State variables
 export let isWhatsAppReady = false;
-export let latestQRCode = null; // 👈 Exported to be used in your controller
+export let latestQRCode = null;
+let isProcessingQR = false;
+
+/**
+ * Updates the global readiness state.
+ * Used by the system-reset controller to avoid "Assignment to constant" errors.
+ */
 export const setWhatsAppStatus = (status) => {
     isWhatsAppReady = status;
 };
@@ -14,39 +21,52 @@ const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
-    qrMaxRetries: 15, // 👈 Keep the QR session alive for more refreshes
-    authTimeoutMs: 300000, // 👈 Give it 5 minutes to complete the link
+    qrMaxRetries: 20,          // Increased retries for more stability
+    authTimeoutMs: 300000,     // 5-minute timeout for slow handshakes
     puppeteer: {
         headless: true,
-        protocolTimeout: 300000, // Match the timeout
+        protocolTimeout: 300000,
         executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--disable-software-rasterizer', // Helps on low-resource environments
+            '--disable-software-rasterizer',
             '--disable-extensions',
-            '--proxy-server="direct://"', // Skip proxy looking for better speed
+            '--proxy-server="direct://"',
             '--proxy-bypass-list=*',
+            // Render Memory optimizations
+            '--js-flags="--max-old-space-size=400"',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     }
 });
 
-// QR Logic
-whatsappClient.on('qr', async (qr) => {
-    console.log('--- NEW QR GENERATED ---');
+// --- Event Listeners ---
 
-    // 1. Still show in terminal for debugging
+whatsappClient.on('qr', async (qr) => {
+    // Prevent rapid-fire processing to save CPU/Network on Render
+    if (isProcessingQR || isWhatsAppReady) return;
+
+    isProcessingQR = true;
+    console.log('--- NEW QR GENERATED (Throttled) ---');
+
+    // Show in terminal for server logs
     qrcodeTerminal.generate(qr, { small: true });
 
-    // 2. Convert to Base64 so Postman can render it as an image
     try {
+        // Wait 3 seconds to let the engine "breathe" before generating the Base64 image
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        // Generate the Image for Postman Visualize
         latestQRCode = await qrcodeImage.toDataURL(qr);
+        console.log('✅ QR Image Ready for Postman');
     } catch (err) {
         console.error('Error generating Base64 QR:', err);
         latestQRCode = qr; // Fallback to raw string
+    } finally {
+        isProcessingQR = false;
     }
 });
 
@@ -70,14 +90,14 @@ whatsappClient.on('disconnected', (reason) => {
     isWhatsAppReady = false;
     latestQRCode = null;
 
-    // Attempt to re-initialize after 5 seconds
+    // Attempt to re-initialize after 10 seconds to avoid loop spam
     setTimeout(() => {
         console.log('Attempting to restart WhatsApp Engine...');
         whatsappClient.initialize();
-    }, 5000);
+    }, 10000);
 });
 
-
+// Initialize the client
 whatsappClient.initialize();
 
 export { whatsappClient };

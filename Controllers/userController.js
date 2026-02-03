@@ -3,7 +3,7 @@ import { sql } from '../Config/db.js';
 import { MY_SECRET_KEY, SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { generateEmailCode } from '../utils/generatedToken.js';
-import { isWhatsAppReady, whatsappClient, latestQRCode } from '../utils/whatsapp-client.js';
+import { isWhatsAppReady, whatsappClient, latestQRCode, setWhatsAppStatus } from '../utils/whatsapp-client.js';
 import { formatPhoneNumber } from '../utils/numberChecker.js';
 
 
@@ -355,6 +355,8 @@ export const syatemReset = async (req, res) => {
     }
 
     try {
+        console.log("Key received from URL:", key);
+        console.log("Expected Key:", MY_SECRET_KEY);
         console.log("🔄 Manual Reset Triggered...");
 
         // Use the function instead of = false

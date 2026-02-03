@@ -5,6 +5,9 @@ import qrcodeImage from 'qrcode'; // Add this to your package.json: npm install 
 
 export let isWhatsAppReady = false;
 export let latestQRCode = null; // 👈 Exported to be used in your controller
+export const setWhatsAppStatus = (status) => {
+    isWhatsAppReady = status;
+};
 
 // Render-specific check
 const isRender = process.env.RENDER === 'true';
@@ -74,9 +77,6 @@ whatsappClient.on('disconnected', (reason) => {
     }, 5000);
 });
 
-export const setWhatsAppStatus = (status) => {
-    isWhatsAppReady = status;
-};
 
 whatsappClient.initialize();
 

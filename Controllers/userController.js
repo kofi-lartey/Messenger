@@ -1,14 +1,17 @@
 import bcrypt from 'bcrypt';
 import { sql } from '../Config/db.js';
-import { MY_SECRET_KEY, SECRET } from '../Config/env.js';
+import { MY_SECRET_KEY, RESEND_API_KEY, SECRET } from '../Config/env.js';
 import jwt from 'jsonwebtoken';
 import { generateEmailCode } from '../utils/generatedToken.js';
 import { isWhatsAppReady, whatsappClient, latestQRCode, setWhatsAppStatus } from '../utils/whatsapp-client.js';
 import { formatPhoneNumber } from '../utils/numberChecker.js';
+import { Resend } from 'resend';
 
 /**
  * 1. Register User & Return QR/Pairing Code
  */
+const resend = new Resend(RESEND_API_KEY);
+
 export const registerUser = async (req, res) => {
     try {
         const {
@@ -17,42 +20,30 @@ export const registerUser = async (req, res) => {
             pricing_tier_code, status, time_zone, image_url
         } = req.body;
 
+        // 1. Basic Validation
         if (!full_name || !work_email || !password || !whatsapp_number) {
             return res.status(400).json({ message: 'Missing required fields' });
         }
 
-        // Check if user already exists by email
+        // 2. Database Check
         const existUser = await sql`SELECT * FROM users WHERE work_email = ${work_email}`;
-        if (existUser.length > 0) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
-
-        // Check if WhatsApp number already exists
-        const existNumber = await sql`SELECT * FROM users WHERE whatsapp_number = ${whatsapp_number}`;
-        if (existNumber.length > 0) {
-            return res.status(400).json({ message: 'User already exists' });
-        }
+        if (existUser.length > 0) return res.status(400).json({ message: 'User already exists' });
 
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
         const vCode = generateEmailCode();
+        const hashedPassword = await bcrypt.hash(password, 10);
 
-        // Mode Check: Pairing Code Logic
-        const delay = (ms) => new Promise(res => setTimeout(res, ms));
+        // 3. Attempt Pairing Code (Resilient for Render)
         let pairingCode = null;
-        let retryCount = 0;
-
-        while (retryCount < 3 && !pairingCode && !isWhatsAppReady) {
+        if (!isWhatsAppReady) {
             try {
                 pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
             } catch (err) {
-                console.log(`Attempt ${retryCount + 1}: Engine busy, waiting...`);
-                if (retryCount < 2) await delay(4000);
-                retryCount++;
+                console.log("WhatsApp busy, user can use QR fallback.");
             }
         }
 
-        const hashedPassword = await bcrypt.hash(password, 10);
-
+        // 4. Database Insertion
         const newUser = await sql`
             INSERT INTO users (
                 full_name, work_email, organization, password, 
@@ -70,33 +61,82 @@ export const registerUser = async (req, res) => {
 
         const user = newUser[0];
         delete user.password;
-
         const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: '1h' });
 
-        // Auto-Send Logic on Link
-        whatsappClient.once('ready', async () => {
-            try {
-                const chatId = `${cleanedNumber}@c.us`;
-                await whatsappClient.sendMessage(chatId, `✅ Device Linked! Your verification code is: ${vCode}`);
-            } catch (err) {
-                console.error('Auto-send failed:', err.message);
-            }
-        });
+        // 5. Prepare Email with Inline QR Attachment (CID Method)
+        try {
+            const attachments = [];
+            let qrHtml = '';
 
+            // If a QR code is currently available in the engine, attach it
+            if (latestQRCode && latestQRCode.includes('base64,')) {
+                const base64Content = latestQRCode.split('base64,')[1];
+
+                attachments.push({
+                    content: base64Content,
+                    filename: 'whatsapp-qr.png',
+                    contentId: 'reg-qr-code', // Unique CID for this email
+                    disposition: 'inline'
+                });
+
+                qrHtml = `
+                    <div style="margin-top: 20px; padding: 15px; border: 1px solid #eee; border-radius: 10px; text-align: center;">
+                        <h3 style="color: #25D366;">Scan to Link WhatsApp</h3>
+                        <img src="cid:reg-qr-code" width="250" style="display: block; margin: 0 auto;" />
+                        <p style="font-size: 12px; color: #777;">Scan this via WhatsApp > Linked Devices</p>
+                    </div>
+                `;
+            }
+
+            await resend.emails.send({
+                from: 'onboarding@resend.dev',
+                to: work_email,
+                subject: 'Welcome! Verify your account & Link WhatsApp',
+                html: `
+                    <div style="font-family: sans-serif; max-width: 600px; margin: auto; color: #333;">
+                        <h2>Welcome to Messenger, ${full_name}!</h2>
+                        <p>Thank you for registering. Your account is almost ready.</p>
+                        
+                        <div style="background: #f4f7f6; padding: 20px; border-radius: 8px; text-align: center;">
+                            <p style="margin: 0; font-size: 14px;">Your Verification Code:</p>
+                            <h1 style="margin: 10px 0; color: #007bff; letter-spacing: 5px;">${vCode}</h1>
+                        </div>
+
+                        ${!isWhatsAppReady ? qrHtml : '<p style="color: green;">✅ WhatsApp Engine is already connected.</p>'}
+                        
+                        ${pairingCode ? `
+                            <div style="margin-top: 15px; text-align: center;">
+                                <p>Or use this Pairing Code on your phone:</p>
+                                <code style="background: #eee; padding: 5px 10px; font-size: 18px; border-radius: 4px;">${pairingCode}</code>
+                            </div>
+                        ` : ''}
+
+                        <p style="margin-top: 30px; font-size: 12px; color: #999;">
+                            If you didn't request this, please ignore this email.
+                        </p>
+                    </div>
+                `,
+                attachments: attachments
+            });
+            console.log("Registration Email with CID QR sent.");
+        } catch (e) {
+            console.error("Initial Email Failed:", e.message);
+        }
+
+        // 6. Response
         return res.status(201).json({
             success: true,
-            message: 'Registration successful!',
             token,
             data: {
-                pairingCode: pairingCode,
-                qrCodeImage: latestQRCode, // Postman Visualize Support
-                user: user
+                pairingCode,
+                qrCodeImage: latestQRCode,
+                user
             }
         });
 
     } catch (error) {
         console.error('Registration Error:', error);
-        return res.status(500).json({ message: 'Internal server error', error: error.message });
+        return res.status(500).json({ message: 'Internal server error' });
     }
 };
 
@@ -106,113 +146,164 @@ export const registerUser = async (req, res) => {
 export const getPairingCode = async (req, res) => {
     try {
         const userId = req.user.id;
-        const userResult = await sql`SELECT whatsapp_number, full_name FROM users WHERE id = ${userId}`;
+        const userResult = await sql`
+            SELECT whatsapp_number, full_name, work_email 
+            FROM users WHERE id = ${userId}
+        `;
 
         if (userResult.length === 0) return res.status(404).json({ message: "User not found" });
 
-        const { whatsapp_number } = userResult[0];
+        const { whatsapp_number, full_name, work_email } = userResult[0];
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
 
+        // 1. Check if already connected
         if (isWhatsAppReady) {
-            return res.json({ success: true, status: "CONNECTED", message: "Already linked!" });
+            return res.json({
+                success: true,
+                status: "CONNECTED",
+                message: "Device is already linked and ready!"
+            });
         }
 
+        // 2. Generate Pairing Code
         let pairingCode = null;
         try {
+            console.log(`Generating pairing code for ${full_name}...`);
             pairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
         } catch (err) {
-            console.warn("Pairing code failed, fallback to QR.");
+            console.warn("Pairing code engine busy, falling back to email QR.");
         }
 
+        // 3. Send Email with Inline QR (CID Method)
+        let emailSent = false;
+        try {
+            const attachments = [];
+            let qrHtml = '';
+
+            // Attach QR if available
+            if (latestQRCode && latestQRCode.includes('base64,')) {
+                const base64Content = latestQRCode.split('base64,')[1];
+
+                attachments.push({
+                    content: base64Content,
+                    filename: 'link-qr.png',
+                    contentId: 'link-qr-code',
+                    disposition: 'inline'
+                });
+
+                qrHtml = `
+                    <div style="text-align: center; margin: 20px 0; padding: 15px; border: 2px dashed #25D366; border-radius: 10px;">
+                        <h3 style="color: #075E54;">Scan to Link Device</h3>
+                        <img src="cid:link-qr-code" width="250" style="display: block; margin: 0 auto;" />
+                        <p style="font-size: 12px; color: #666;">Settings > Linked Devices > Link a Device</p>
+                    </div>
+                `;
+            }
+
+            await resend.emails.send({
+                from: 'onboarding@resend.dev',
+                to: work_email,
+                subject: 'Action Required: Link your WhatsApp Device',
+                html: `
+                    <div style="font-family: sans-serif; max-width: 500px; color: #333;">
+                        <h2>Hello ${full_name},</h2>
+                        <p>You requested a new linking code for your WhatsApp account (<strong>${cleanedNumber}</strong>).</p>
+                        
+                        ${qrHtml}
+
+                        ${pairingCode ? `
+                            <div style="text-align: center; background: #f9f9f9; padding: 15px; border-radius: 8px;">
+                                <p style="margin-bottom: 5px;">Or use this Pairing Code on your phone:</p>
+                                <b style="font-size: 22px; color: #007bff; letter-spacing: 2px;">${pairingCode}</b>
+                            </div>
+                        ` : ''}
+
+                        <p style="font-size: 13px; color: #888; margin-top: 20px;">
+                            Note: These codes are temporary. If they expire, simply request a new one from your dashboard.
+                        </p>
+                    </div>
+                `,
+                attachments: attachments
+            });
+            emailSent = true;
+        } catch (mailErr) {
+            console.error("Link Email Failed:", mailErr.message);
+        }
+
+        // 4. Final Response
         return res.status(200).json({
             success: true,
+            status: "AWAITING_LINK",
+            emailSent,
             data: {
                 pairingCode,
                 qrCodeImage: latestQRCode,
                 phoneNumber: cleanedNumber
             }
         });
+
     } catch (err) {
-        return res.status(500).json({ success: false, message: err.message });
+        console.error("Pairing Auth Error:", err.message);
+        return res.status(500).json({
+            success: false,
+            message: "Internal server error during pairing generation."
+        });
     }
 };
 
 export const resendCode = async (req, res) => {
     try {
         const userId = req.user.id;
-
-        // 1. Fetch user status and number
-        const userResult = await sql`
-            SELECT status, whatsapp_number, full_name FROM users WHERE id = ${userId}
-        `;
-
-        if (userResult.length === 0) {
-            return res.status(404).json({ message: "User not found" });
-        }
+        const userResult = await sql`SELECT * FROM users WHERE id = ${userId}`;
+        if (userResult.length === 0) return res.status(404).json({ message: "User not found" });
 
         const user = userResult[0];
-
-        // 2. Check if already active
-        if (user.status === 'active' || user.status === 'activate') {
-            return res.status(400).json({ message: "Account is already verified." });
-        }
-
-        const cleanedNumber = formatPhoneNumber(user.whatsapp_number);
         const newVCode = generateEmailCode();
+        const cleanedNumber = formatPhoneNumber(user.whatsapp_number);
 
-        /**
-         * SCENARIO A: The user is NOT linked yet.
-         * We try to generate a fresh Pairing Code and provide the latest QR.
-         */
-        let newPairingCode = null;
-        if (!isWhatsAppReady) {
-            try {
-                console.log(`Regenerating pairing code for ${cleanedNumber}...`);
-                newPairingCode = await whatsappClient.requestPairingCode(cleanedNumber);
-            } catch (err) {
-                console.log("Engine busy; user can still use the QR code image.");
-            }
-        }
+        // 1. Update Database
+        await sql`UPDATE users SET verification_code = ${newVCode} WHERE id = ${userId}`;
 
-        /**
-         * SCENARIO B: The user IS linked.
-         * We send the 6-digit PIN directly to their WhatsApp.
-         */
-        let whatsappMessageSent = false;
+        // 2. Try WhatsApp (if engine is ready)
+        let whatsappSent = false;
         if (isWhatsAppReady) {
             try {
-                const chatId = `${cleanedNumber}@c.us`;
-                await whatsappClient.sendMessage(chatId, `Your new verification code is: ${newVCode}`);
-                whatsappMessageSent = true;
-            } catch (err) {
-                console.error("Message send failed:", err.message);
-            }
+                await whatsappClient.sendMessage(`${cleanedNumber}@c.us`, `Your new code: ${newVCode}`);
+                whatsappSent = true;
+            } catch (err) { console.log("WhatsApp message failed."); }
         }
 
-        // 3. Update the database with the new 6-digit code
-        await sql`
-            UPDATE users 
-            SET verification_code = ${newVCode} 
-            WHERE id = ${userId}
-        `;
+        // 3. Try Email (Resend)
+        let emailSent = false;
+        try {
+            await resend.emails.send({
+                from: 'onboarding@resend.dev',
+                to: user.work_email,
+                subject: 'New Verification Code',
+                html: `<strong>${newVCode}</strong>`
+            });
+            emailSent = true;
+        } catch (mailErr) { console.error("Resend Error:", mailErr.message); }
 
-        // 4. Return Response (with QR for Postman)
+        // 4. Generate fresh Pairing Code for the response
+        let freshPairingCode = null;
+        if (!isWhatsAppReady) {
+            try { freshPairingCode = await whatsappClient.requestPairingCode(cleanedNumber); } catch (e) { }
+        }
+
         return res.status(200).json({
             success: true,
-            isLinked: isWhatsAppReady,
-            message: isWhatsAppReady
-                ? "A new 6-digit verification code has been sent to your WhatsApp."
-                : "New linking credentials generated.",
+            message: emailSent ? "Code sent to email." : "Code updated.",
             data: {
-                pairingCode: newPairingCode,
-                qrCodeImage: latestQRCode, // Keep the QR visible in Postman
-                vCodeSent: whatsappMessageSent
+                emailSent,
+                whatsappSent,
+                pairingCode: freshPairingCode,
+                qrCodeImage: latestQRCode
             }
         });
 
     } catch (error) {
-        console.error('Resend Error:', error);
-        return res.status(500).json({ message: "Failed to resend code." });
+        res.status(500).json({ message: "Failed to resend" });
     }
 };
 

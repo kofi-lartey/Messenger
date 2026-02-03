@@ -21,8 +21,15 @@ export const registerUser = async (req, res) => {
             return res.status(400).json({ message: 'Missing required fields' });
         }
 
+        // Check if user already exists by email
         const existUser = await sql`SELECT * FROM users WHERE work_email = ${work_email}`;
         if (existUser.length > 0) {
+            return res.status(400).json({ message: 'User already exists' });
+        }
+
+        // Check if WhatsApp number already exists
+        const existNumber = await sql`SELECT * FROM users WHERE whatsapp_number = ${whatsapp_number}`;
+        if (existNumber.length > 0) {
             return res.status(400).json({ message: 'User already exists' });
         }
 
@@ -193,8 +200,8 @@ export const resendCode = async (req, res) => {
         return res.status(200).json({
             success: true,
             isLinked: isWhatsAppReady,
-            message: isWhatsAppReady 
-                ? "A new 6-digit verification code has been sent to your WhatsApp." 
+            message: isWhatsAppReady
+                ? "A new 6-digit verification code has been sent to your WhatsApp."
                 : "New linking credentials generated.",
             data: {
                 pairingCode: newPairingCode,
@@ -264,3 +271,39 @@ export const checkStatus = (req, res) => {
         qrCodeImage: latestQRCode // Shows QR in Postman for health checks too
     });
 };
+
+// login user
+export const loginUser = async (req, res) => {
+    try {
+        const { whatsapp_number, password } = req.body;
+        if (!whatsapp_number || !password) {
+            return res.status(400).json({ message: 'Missing whatsapp number or password' });
+        }
+        const cleanedNumber = formatPhoneNumber(whatsapp_number);
+        const userResult = await sql`
+        SELECT * FROM users WHERE whatsapp_number = ${cleanedNumber}
+        `;
+        if (userResult.length === 0) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+        const user = userResult[0];
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+            return res.status(401).json({ message: 'Invalid password' });
+        }
+        delete user.password;
+        const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: '1h' });
+        return res.status(200).json({
+            success: true,
+            message: 'Login successful',
+            token,
+            data: {
+                user: user
+            }
+        })
+
+    } catch (error) {
+        console.error('Login Error:', error);
+        return res.status(500).json({ message: 'Internal server error', error: error.message });
+    }
+}

@@ -38,8 +38,22 @@ const whatsappClient = new Client({
             '--proxy-bypass-list=*',
             // Render Memory optimizations
             '--js-flags="--max-old-space-size=400"',
+            '--disable-datasaver-navigation',
+            '--disable-features=IsolateOrigins,site-per-process',
+            '--js-flags="--max-old-space-size=400"', // Force JS to stay under Render's 512MB,
+            // --- SLIM MODE FLAGS ---
+            '--hide-scrollbars',
+            '--disable-notifications',
+            '--disable-logging',
+            '--disable-permissions-api',
+            '--disable-default-apps',
+            '--mute-audio',
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
+    },
+    webVersionCache: {
+        type: 'remote',
+        remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
     }
 });
 

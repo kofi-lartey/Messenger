@@ -356,12 +356,11 @@ export const syatemReset = async (req, res) => {
 
     try {
         console.log("🔄 Manual Reset Triggered...");
-        isWhatsAppReady = false;
 
-        // Destroy the current session safely
+        // Use the function instead of = false
+        setWhatsAppStatus(false);
+
         await whatsappClient.destroy();
-
-        // Re-initialize from scratch
         await whatsappClient.initialize();
 
         res.json({ success: true, message: "WhatsApp Engine is restarting. Wait 30 seconds." });

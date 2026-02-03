@@ -74,6 +74,10 @@ whatsappClient.on('disconnected', (reason) => {
     }, 5000);
 });
 
+export const setWhatsAppStatus = (status) => {
+    isWhatsAppReady = status;
+};
+
 whatsappClient.initialize();
 
 export { whatsappClient };

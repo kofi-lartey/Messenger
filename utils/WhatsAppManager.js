@@ -5,68 +5,11 @@ import unzipper from 'unzipper';
 import fs from 'fs-extra';
 import qrcodeImage from 'qrcode';
 import { sql } from '../Config/db.js';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { BROWSERLESS_API_KEY } from '../Config/env.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const activeClients = new Map();
 
 // --- HELPERS: DEBUG & PERSISTENCE ---
-
-/**
- * Finds Chrome executable path - checks multiple locations
- */
-const findChromeExecutable = () => {
-    // Check environment variable first
-    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
-        console.log(`Using PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
-        return process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-
-    const homeDir = process.env.HOME || '/root';
-
-    // Check puppeteer cache with common patterns
-    const puppeteerDir = path.join(homeDir, '.cache', 'puppeteer', 'chrome');
-    if (fs.existsSync(puppeteerDir)) {
-        // Find entries in puppeteer cache
-        const entries = fs.readdirSync(puppeteerDir, { withFileTypes: true });
-        const dirs = entries.filter(e => e.isDirectory() && e.name.includes('linux')).map(e => e.name);
-        if (dirs.length > 0) {
-            // Sort to get the latest
-            dirs.sort().reverse();
-            const chromePath = path.join(puppeteerDir, dirs[0], 'chrome');
-            if (fs.existsSync(chromePath)) {
-                console.log(`Found Chrome in puppeteer cache: ${chromePath}`);
-                return chromePath;
-            }
-        }
-    }
-
-    // Check bundled chromium with whatsapp-web.js
-    const bundledChromePaths = [
-        path.resolve(__dirname, '..', 'node_modules', 'whatsapp-web.js', '.chrome', 'chrome-linux', 'chrome'),
-        path.resolve(__dirname, '..', 'node_modules', 'whatsapp-web.js', '.chrome', 'chrome-win', 'chrome.exe'),
-    ];
-
-    for (const chromePath of bundledChromePaths) {
-        if (fs.existsSync(chromePath)) {
-            console.log(`Found bundled Chrome: ${chromePath}`);
-            return chromePath;
-        }
-    }
-
-    // Check system paths
-    const systemPaths = ['/usr/bin/chromium', '/usr/bin/chromium-browser', '/usr/bin/google-chrome'];
-    for (const chromePath of systemPaths) {
-        if (fs.existsSync(chromePath)) {
-            console.log(`Found system Chrome: ${chromePath}`);
-            return chromePath;
-        }
-    }
-
-    console.log('No Chrome found, letting whatsapp-web.js handle it');
-    return undefined;
-};
 
 /**
  * Captures what the browser sees and saves it to the DB
@@ -132,35 +75,24 @@ export const initializeUserWhatsApp = async (userId) => {
         await restoreSessionFromDb(userId, user.whatsapp_session);
     }
 
-    console.log(`🚀 Initializing WhatsApp for user ${userId}`);
+    console.log(`🚀 Initializing WhatsApp for user ${userId} with Browserless.io`);
 
-    // Find Chrome executable
-    const chromeExecutable = findChromeExecutable();
+    // Browserless.io URL - correct format with token
+    const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`;
+    console.log(`📡 Browserless URL: wss://chrome.browserless.io?token=***`);
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: `user-${userId}` }),
         authTimeoutMs: 120000,
         puppeteer: {
-            ...(chromeExecutable && { executablePath: chromeExecutable }),
+            browserWSEndpoint: browserlessUrl,
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
                 '--disable-blink-features=AutomationControlled',
                 '--lang=en-US,en;q=0.9',
-                '--disable-gpu',
-                '--disable-software-rasterizer',
-                '--disable-accelerated-2d-canvas',
-                '--disable-extensions',
-                '--disable-background-networking',
-                '--disable-sync',
-                '--disable-translate',
-                '--metrics-recording-only',
-                '--mute-audio',
-                '--no-first-run',
-                '--safebrowsing-disable-auto-update',
             ]
         },
         webVersionCache: {

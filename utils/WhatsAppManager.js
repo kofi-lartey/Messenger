@@ -72,33 +72,45 @@ export const initializeUserWhatsApp = async (userId) => {
     // 1. Restore Session from DB
     const [user] = await sql`SELECT whatsapp_session FROM users WHERE id = ${userId}`;
     if (user?.whatsapp_session) {
+        console.log(`📦 Found existing session for user ${userId}, restoring...`);
         await restoreSessionFromDb(userId, user.whatsapp_session);
+    } else {
+        console.log(`🆕 No session found for user ${userId}, will require new QR scan`);
     }
 
     console.log(`🚀 Initializing WhatsApp for user ${userId} with Browserless.io`);
 
-    // Browserless.io URL - correct format with token
+    // Browserless.io URL - correct format with token only
     const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`;
-    console.log(`📡 Browserless URL: wss://chrome.browserless.io?token=***`);
+    console.log(`📡 Using Browserless.io WebSocket endpoint`);
 
     const client = new Client({
-        authStrategy: new LocalAuth({ clientId: `user-${userId}` }),
-        authTimeoutMs: 120000,
+        authStrategy: new LocalAuth({
+            clientId: `user-${userId}`,
+            dataPath: './.wwebjs_auth'
+        }),
+        authTimeoutMs: 180000, // 3 minutes for cloud environments
         puppeteer: {
             browserWSEndpoint: browserlessUrl,
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                '--disable-dev-shm-usage',
+                '--disable-gpu',
+                '--window-size=1920,1080',
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--disable-blink-features=AutomationControlled',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
                 '--lang=en-US,en;q=0.9',
             ]
         },
         webVersionCache: {
             type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.0.html',
         }
+
     });
 
     // 2. Handle QR Code
@@ -107,12 +119,15 @@ export const initializeUserWhatsApp = async (userId) => {
             const qrImage = await qrcodeImage.toDataURL(qr);
             await sql`UPDATE users SET last_qr_code = ${qrImage}, whatsapp_status = 'AWAITING_SCAN' WHERE id = ${userId}`;
             console.log(`📥 QR generated for ${userId}`);
-        } catch (err) { console.error("QR Error:", err); }
+            console.log(`   Scan URL: https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qr)}`);
+        } catch (err) {
+            console.error("QR Error:", err);
+        }
     });
 
     // 3. Handle Ready
     client.on('ready', async () => {
-        console.log(`✅ User ${userId} is READY`);
+        console.log(`✅ User ${userId} is READY - WhatsApp linked successfully!`);
         await sql`UPDATE users SET whatsapp_status = 'CONNECTED', last_qr_code = NULL, debug_screenshot = NULL WHERE id = ${userId}`;
         await saveSessionToDb(userId);
     });
@@ -120,8 +135,14 @@ export const initializeUserWhatsApp = async (userId) => {
     // 4. Handle Failures (Debug Mode)
     client.on('auth_failure', async (msg) => {
         console.error(`🔒 Auth Failure for ${userId}:`, msg);
+        console.error(`   This usually means WhatsApp blocked the link attempt`);
         await captureDebugScreenshot(userId, client);
         await sql`UPDATE users SET whatsapp_status = 'AUTH_FAILURE' WHERE id = ${userId}`;
+    });
+
+    // 5. Handle loading (WhatsApp Web initializing)
+    client.on('loading', async () => {
+        console.log(`⏳ User ${userId}: WhatsApp Web is loading...`);
     });
 
     client.on('disconnected', async (reason) => {
@@ -131,9 +152,9 @@ export const initializeUserWhatsApp = async (userId) => {
         await sql`UPDATE users SET whatsapp_status = 'DISCONNECTED' WHERE id = ${userId}`;
     });
 
-    // 5. Initialize
+    // 6. Initialize
     client.initialize().catch(async (err) => {
-        console.error(`Init error ${userId}:`, err);
+        console.error(`❌ Init error for ${userId}:`, err.message);
         await captureDebugScreenshot(userId, client);
         await sql`UPDATE users SET whatsapp_status = 'ERROR' WHERE id = ${userId}`;
     });

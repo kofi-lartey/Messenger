@@ -17,7 +17,7 @@ export const authenticate = async (req, res, next) => {
 
         // 2. Fetch using columns from your actual Neon table: 'id', 'full_name', 'work_email'
         const userResult = await sql`
-            SELECT id, full_name, work_email, organization 
+            SELECT id, full_name, work_email, organization, status, whatsapp_number
             FROM users 
             WHERE id = ${userIdFromToken}
         `;

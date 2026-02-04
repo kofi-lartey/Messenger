@@ -92,18 +92,18 @@ export const getPairingCode = async (req, res) => {
     try {
         const userId = req.user.id;
 
-        // 1. Fetch user data
+        // 1. Fetch user data (Including session)
         const userResult = await sql`
-            SELECT whatsapp_number, full_name, work_email, whatsapp_status, last_qr_code 
+            SELECT whatsapp_number, full_name, work_email, whatsapp_status, last_qr_code, whatsapp_session 
             FROM users WHERE id = ${userId}
         `;
 
         if (userResult.length === 0) return res.status(404).json({ message: "User not found" });
 
-        const { whatsapp_number, full_name, work_email, whatsapp_status, last_qr_code } = userResult[0];
+        const { whatsapp_number, full_name, work_email, whatsapp_status, last_qr_code, whatsapp_session } = userResult[0];
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
 
-        // 2. Check current DB status
+        // 2. Check current status
         if (whatsapp_status === "CONNECTED") {
             return res.json({
                 success: true,
@@ -114,18 +114,20 @@ export const getPairingCode = async (req, res) => {
 
         // 3. Get or Initialize this specific user's client
         let client = getClient(userId);
+        
         if (!client) {
             console.log(`No active engine for ${full_name}. Initializing...`);
+            // This will also restore session from DB if whatsapp_session exists
             client = await initializeUserWhatsApp(userId);
         }
 
-        // 4. Generate Pairing Code from the specific user's client
+        // 4. Generate Pairing Code
         let pairingCode = null;
         try {
-            console.log(`Generating pairing code for ${full_name} via Browserless...`);
+            console.log(`Requesting pairing code for ${full_name}...`);
             pairingCode = await client.requestPairingCode(cleanedNumber);
         } catch (err) {
-            console.warn("Pairing code engine busy. Ensure WhatsApp is not already linking.");
+            console.warn("Pairing code engine busy or session restoring.");
         }
 
         // 5. Send Email with Inline QR (Using the QR saved in NeonDB)
@@ -134,7 +136,7 @@ export const getPairingCode = async (req, res) => {
             const attachments = [];
             let qrHtml = '';
 
-            // last_qr_code comes from our NeonDB, updated by the WhatsAppManager event
+            // last_qr_code is updated via the 'qr' event in our Manager
             if (last_qr_code && last_qr_code.includes('base64,')) {
                 const base64Content = last_qr_code.split('base64,')[1];
 
@@ -170,7 +172,7 @@ export const getPairingCode = async (req, res) => {
                             </div>
                         ` : ''}
                         <p style="font-size: 13px; color: #888; margin-top: 20px;">
-                            Note: If you don't see a QR code, the engine is still warming up. Refresh your dashboard in a moment.
+                            Note: If you don't see a QR code, the engine is still warming up.
                         </p>
                     </div>
                 `,
@@ -184,17 +186,17 @@ export const getPairingCode = async (req, res) => {
         // 6. Final Response
         return res.status(200).json({
             success: true,
-            status: "AWAITING_LINK",
+            status: whatsapp_status || "INITIALIZING",
             emailSent,
             data: {
                 pairingCode,
-                qrCodeImage: last_qr_code, // Return the DB version of the QR
+                qrCodeImage: last_qr_code,
                 phoneNumber: cleanedNumber
             }
         });
 
     } catch (err) {
-        console.error("Pairing Auth Error:", err.message);
+        console.error("Pairing Auth Error:", err.stack); // stack gives more detail than message
         return res.status(500).json({
             success: false,
             message: "Internal server error during pairing generation."

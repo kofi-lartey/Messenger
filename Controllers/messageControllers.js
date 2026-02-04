@@ -39,7 +39,7 @@ export const createContact = async (req, res) => {
 
 export const uploadBulkContacts = async (req, res) => {
     // 1. Security Check
-    if (req.user.status !== 'active') {
+    if (req.user.status !== 'activate') {
         // Clean up uploaded file from Cloudinary if exists
         if (req.file) {
             try {

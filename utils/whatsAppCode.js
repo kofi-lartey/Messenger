@@ -1,6 +1,5 @@
 import axios from 'axios';
 import { INFOBIP_API_KEY, INFOBIP_BASE_URL, INFOBIP_SENDER_NUMBER } from '../Config/env.js';
-import { whatsappClient,isWhatsAppReady } from './whatsapp-client.js';
 
 
 

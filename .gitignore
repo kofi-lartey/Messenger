@@ -8,6 +8,9 @@ node_modules/
 # Puppeteer Browser Cache (The Chrome browser you installed)
 .cache/
 
+# Bundled Chrome for whatsapp-web.js
+.chrome/
+
 # Environment Variables & Secrets
 .env
 

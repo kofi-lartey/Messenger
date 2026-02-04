@@ -8,6 +8,60 @@ import { Resend } from 'resend';
 import { generateWhatsAppUrl } from '../Services/whatsappChatApi.js';
 
 /**
+ * 0. Login User
+ */
+export const loginUser = async (req, res) => {
+    try {
+        const { whatsapp_number, password } = req.body;
+
+        if (!whatsapp_number || !password) {
+            return res.status(400).json({ message: 'WhatsApp number and password are required' });
+        }
+
+        // Clean phone number
+        const cleanedNumber = formatPhoneNumber(whatsapp_number);
+
+        // Find user by WhatsApp number
+        const userResult = await sql`SELECT * FROM users WHERE whatsapp_number = ${cleanedNumber}`;
+        if (userResult.length === 0) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        const user = userResult[0];
+
+        // Check password
+        const validPassword = await bcrypt.compare(password, user.password);
+        if (!validPassword) {
+            return res.status(401).json({ message: 'Invalid credentials' });
+        }
+
+        // Check if user is verified
+        if (user.status !== 'activate') {
+            return res.status(403).json({
+                message: 'Account not verified. Please verify your email first.',
+                requiresVerification: true
+            });
+        }
+
+        // Generate token
+        const token = jwt.sign({ id: user.id }, SECRET, { expiresIn: '7d' });
+
+        // Remove password from response
+        delete user.password;
+
+        return res.json({
+            success: true,
+            token,
+            user
+        });
+
+    } catch (error) {
+        console.error('Login Error:', error);
+        return res.status(500).json({ message: 'Internal server error' });
+    }
+};
+
+/**
  * 1. Register User with Email & WhatsApp Verification
  */
 const resendEmail = new Resend(RESEND_API_KEY);

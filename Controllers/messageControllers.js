@@ -88,7 +88,8 @@ export const uploadBulkContacts = async (req, res) => {
                     if (contactsToInsert.length > 0) {
                         const insertedRows = await sql`
                             INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
-                            SELECT * FROM json_to_recordset(${JSON.stringify(contactsToInsert)})
+                            SELECT full_name::TEXT, whatsapp_number::TEXT, organization::TEXT, location::TEXT, contact_group::TEXT::contact_group, created_by
+                            FROM json_to_recordset(${JSON.stringify(contactsToInsert)})
                             AS x(full_name TEXT, whatsapp_number TEXT, organization TEXT, location TEXT, contact_group TEXT, created_by INTEGER)
                             ON CONFLICT (whatsapp_number) DO NOTHING
                             RETURNING id

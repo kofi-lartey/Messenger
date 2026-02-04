@@ -215,11 +215,11 @@ export const uploadBulkContacts = async (req, res) => {
                         created_by: req.user.id
                     }));
 
-                    // 4. Batch Insert (Neon/Postgres.js syntax)
+                    // 4. Batch Insert using JSON array
                     await sql`
-                        INSERT INTO contacts ${sql(contactsToInsert,
-                        'full_name', 'whatsapp_number', 'organization', 'location', 'contact_group', 'created_by'
-                    )}
+                        INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
+                        SELECT * FROM json_to_recordset(${JSON.stringify(contactsToInsert)})
+                        AS x(full_name TEXT, whatsapp_number TEXT, organization TEXT, location TEXT, contact_group TEXT, created_by INTEGER)
                         ON CONFLICT (whatsapp_number) DO NOTHING
                     `;
 

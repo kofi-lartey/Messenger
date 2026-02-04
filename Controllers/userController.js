@@ -333,3 +333,42 @@ export const syatemReset = async (req, res) => {
         res.status(500).json({ message: "Reset failed" });
     }
 };
+
+/**
+ * 6. Get User Dashboard (Menu)
+ */
+export const getDashboard = async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Get user info
+        const userResult = await sql`
+            SELECT id, full_name, work_email, whatsapp_number, organization, status, created_at
+            FROM users WHERE id = ${userId}
+        `;
+
+        // Get contact count
+        const contactsResult = await sql`
+            SELECT COUNT(*) as total FROM contacts WHERE created_by = ${userId}
+        `;
+
+        // Get broadcast count
+        const broadcastsResult = await sql`
+            SELECT COUNT(*) as total FROM broadcastmessages WHERE created_by = ${userId}
+        `;
+
+        return res.status(200).json({
+            success: true,
+            data: {
+                user: userResult[0],
+                stats: {
+                    totalContacts: parseInt(contactsResult[0]?.total || 0),
+                    totalBroadcasts: parseInt(broadcastsResult[0]?.total || 0)
+                }
+            }
+        });
+    } catch (error) {
+        console.error('Dashboard Error:', error);
+        res.status(500).json({ message: 'Error loading dashboard' });
+    }
+};

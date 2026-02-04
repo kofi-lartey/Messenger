@@ -38,19 +38,138 @@ export const createContact = async (req, res) => {
 };
 
 
+// export const uploadBulkContacts = async (req, res) => {
+//     // 1. Security Check
+//     if (req.user.status !== 'activate') {
+//         // Clean up uploaded file from Cloudinary if exists
+//         if (req.file) {
+//             try {
+//                 await cloudinary.uploader.destroy(req.file.filename);
+//             } catch (e) { }
+//         }
+//         return res.status(403).json({ message: "Verify your account to use bulk upload." });
+//     }
+
+//     // Check if file was uploaded
+//     if (!req.file) {
+//         return res.status(400).json({ message: "CSV file is required." });
+//     }
+
+//     const validGroups = ['VIP', 'SUPPORT', 'VENDOR', 'MARKETERS', 'LOGISTICS', 'PARTNERS', 'MEMBERS', 'STAFF'];
+//     const results = [];
+
+//     // Temp file path for processing (use relative path for Windows compatibility)
+//     const tempPath = `./temp_${Date.now()}_${req.file.originalname}`;
+
+//     try {
+//         // Get the file URL from Cloudinary (already uploaded by multer-storage-cloudinary)
+//         const fileUrl = req.file.secure_url;
+
+//         console.log("File URL:", fileUrl);
+//         console.log("req.file:", JSON.stringify(req.file, null, 2));
+
+//         if (!fileUrl) {
+//             throw new Error('No secure_url available from uploaded file. Check Cloudinary configuration.');
+//         }
+
+//         // Download file using https module
+//         await new Promise((resolve, reject) => {
+//             https.get(fileUrl, (response) => {
+//                 if (response.statusCode !== 200) {
+//                     reject(new Error(`Failed to download: ${response.statusCode}`));
+//                     return;
+//                 }
+//                 const chunks = [];
+//                 response.on('data', chunk => chunks.push(chunk));
+//                 response.on('end', () => {
+//                     fs.writeFileSync(tempPath, Buffer.concat(chunks));
+//                     resolve();
+//                 });
+//                 response.on('error', reject);
+//             }).on('error', reject);
+//         });
+//     } catch (e) {
+//         console.error("Error downloading from Cloudinary:", e);
+//         return res.status(500).json({ message: "Error processing uploaded file." });
+//     }
+
+//     // 2. Stream and Parse CSV
+//     fs.createReadStream(tempPath)
+//         .pipe(csv())
+//         .on('data', (data) => results.push(data))
+//         .on('error', async (err) => {
+//             // Clean up temp file
+//             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+//             console.error("CSV Parse Error:", err);
+//             res.status(400).json({ message: "Error parsing CSV file." });
+//         })
+//         .on('end', async () => {
+//             try {
+//                 // Clean up temp file
+//                 if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+//                 if (results.length === 0) {
+//                     return res.status(400).json({ message: "The CSV file is empty." });
+//                 }
+
+//                 // 3. Transform and Validate Data for Batch Insert
+//                 const contactsToInsert = results.map(row => ({
+//                     full_name: row.fullName || row.full_name || 'Unknown',
+//                     whatsapp_number: row.contact || row.whatsapp_number,
+//                     organization: row.organization || 'N/A',
+//                     location: row.location || 'N/A',
+//                     contact_group: validGroups.includes(row.group?.toUpperCase())
+//                         ? row.group.toUpperCase()
+//                         : 'MEMBERS',
+//                     created_by: req.user.id
+//                 }));
+
+//                 // 4. Perform High-Speed Batch Insert
+//                 await sql`
+//                     INSERT INTO contacts ${sql(contactsToInsert,
+//                     'full_name',
+//                     'whatsapp_number',
+//                     'organization',
+//                     'location',
+//                     'contact_group',
+//                     'created_by'
+//                 )}
+//                     ON CONFLICT (whatsapp_number) DO NOTHING
+//                 `;
+
+//                 res.status(200).json({
+//                     message: `Bulk upload successful: ${results.length} contacts processed.`,
+//                     summary: {
+//                         total: results.length,
+//                         uploaded_by: req.user.full_name
+//                     },
+//                     createdBy: {
+//                         id: req.user.id,
+//                         full_name: req.user.full_name,
+//                         work_email: req.user.work_email
+//                     }
+//                 });
+
+//             } catch (error) {
+//                 console.error("Bulk Upload Error:", error);
+//                 res.status(500).json({ message: "Database error during bulk upload." });
+//             }
+//         });
+// };
+
+// --- CREATE BROADCAST MESSAGE ---
 export const uploadBulkContacts = async (req, res) => {
-    // 1. Security Check
+    // 1. Security Check - using 'activate' as requested
     if (req.user.status !== 'activate') {
-        // Clean up uploaded file from Cloudinary if exists
         if (req.file) {
             try {
+                // Multer-storage-cloudinary usually puts the public_id in req.file.filename
                 await cloudinary.uploader.destroy(req.file.filename);
-            } catch (e) { }
+            } catch (e) { console.error("Cloudinary Cleanup Error:", e.message); }
         }
         return res.status(403).json({ message: "Verify your account to use bulk upload." });
     }
 
-    // Check if file was uploaded
     if (!req.file) {
         return res.status(400).json({ message: "CSV file is required." });
     }
@@ -58,106 +177,77 @@ export const uploadBulkContacts = async (req, res) => {
     const validGroups = ['VIP', 'SUPPORT', 'VENDOR', 'MARKETERS', 'LOGISTICS', 'PARTNERS', 'MEMBERS', 'STAFF'];
     const results = [];
 
-    // Temp file path for processing (use relative path for Windows compatibility)
-    const tempPath = `./temp_${Date.now()}_${req.file.originalname}`;
+    // Cloudinary URL is stored in path or secure_url
+    const fileUrl = req.file.path || req.file.secure_url;
 
-    try {
-        // Get the file URL from Cloudinary (already uploaded by multer-storage-cloudinary)
-        const fileUrl = req.file.secure_url;
-
-        console.log("File URL:", fileUrl);
-        console.log("req.file:", JSON.stringify(req.file, null, 2));
-
-        if (!fileUrl) {
-            throw new Error('No secure_url available from uploaded file. Check Cloudinary configuration.');
+    // 2. Stream Directly from Cloudinary
+    https.get(fileUrl, (response) => {
+        if (response.statusCode !== 200) {
+            return res.status(500).json({ message: "Failed to download CSV from cloud storage." });
         }
 
-        // Download file using https module
-        await new Promise((resolve, reject) => {
-            https.get(fileUrl, (response) => {
-                if (response.statusCode !== 200) {
-                    reject(new Error(`Failed to download: ${response.statusCode}`));
-                    return;
+        response.pipe(csv())
+            .on('data', (data) => {
+                // Only push if the row isn't completely empty
+                if (Object.values(data).some(val => val)) {
+                    results.push(data);
                 }
-                const chunks = [];
-                response.on('data', chunk => chunks.push(chunk));
-                response.on('end', () => {
-                    fs.writeFileSync(tempPath, Buffer.concat(chunks));
-                    resolve();
-                });
-                response.on('error', reject);
-            }).on('error', reject);
-        });
-    } catch (e) {
-        console.error("Error downloading from Cloudinary:", e);
-        return res.status(500).json({ message: "Error processing uploaded file." });
-    }
-
-    // 2. Stream and Parse CSV
-    fs.createReadStream(tempPath)
-        .pipe(csv())
-        .on('data', (data) => results.push(data))
-        .on('error', async (err) => {
-            // Clean up temp file
-            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-            console.error("CSV Parse Error:", err);
-            res.status(400).json({ message: "Error parsing CSV file." });
-        })
-        .on('end', async () => {
-            try {
-                // Clean up temp file
-                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
-
-                if (results.length === 0) {
-                    return res.status(400).json({ message: "The CSV file is empty." });
-                }
-
-                // 3. Transform and Validate Data for Batch Insert
-                const contactsToInsert = results.map(row => ({
-                    full_name: row.fullName || row.full_name || 'Unknown',
-                    whatsapp_number: row.contact || row.whatsapp_number,
-                    organization: row.organization || 'N/A',
-                    location: row.location || 'N/A',
-                    contact_group: validGroups.includes(row.group?.toUpperCase())
-                        ? row.group.toUpperCase()
-                        : 'MEMBERS',
-                    created_by: req.user.id
-                }));
-
-                // 4. Perform High-Speed Batch Insert
-                await sql`
-                    INSERT INTO contacts ${sql(contactsToInsert,
-                    'full_name',
-                    'whatsapp_number',
-                    'organization',
-                    'location',
-                    'contact_group',
-                    'created_by'
-                )}
-                    ON CONFLICT (whatsapp_number) DO NOTHING
-                `;
-
-                res.status(200).json({
-                    message: `Bulk upload successful: ${results.length} contacts processed.`,
-                    summary: {
-                        total: results.length,
-                        uploaded_by: req.user.full_name
-                    },
-                    createdBy: {
-                        id: req.user.id,
-                        full_name: req.user.full_name,
-                        work_email: req.user.work_email
+            })
+            .on('error', (err) => {
+                console.error("CSV Parse Error:", err);
+                if (!res.headersSent) res.status(400).json({ message: "Error parsing CSV file content." });
+            })
+            .on('end', async () => {
+                try {
+                    if (results.length === 0) {
+                        return res.status(400).json({ message: "The CSV file is empty." });
                     }
-                });
 
-            } catch (error) {
-                console.error("Bulk Upload Error:", error);
-                res.status(500).json({ message: "Database error during bulk upload." });
-            }
-        });
+                    // 3. Transform Data for Batch Insert
+                    const contactsToInsert = results.map(row => ({
+                        full_name: row.fullName || row.full_name || 'Unknown',
+                        whatsapp_number: String(row.contact || row.whatsapp_number).replace(/\s+/g, ''),
+                        organization: row.organization || 'N/A',
+                        location: row.location || 'N/A',
+                        contact_group: validGroups.includes(row.group?.toUpperCase())
+                            ? row.group.toUpperCase()
+                            : 'MEMBERS',
+                        created_by: req.user.id
+                    }));
+
+                    // 4. Batch Insert (Neon/Postgres.js syntax)
+                    await sql`
+                        INSERT INTO contacts ${sql(contactsToInsert,
+                        'full_name', 'whatsapp_number', 'organization', 'location', 'contact_group', 'created_by'
+                    )}
+                        ON CONFLICT (whatsapp_number) DO NOTHING
+                    `;
+
+                    // 5. Success Response
+                    res.status(200).json({
+                        message: `Bulk upload successful: ${results.length} contacts processed.`,
+                        summary: {
+                            total_rows: results.length,
+                            status: "Success"
+                        },
+                        createdBy: {
+                            id: req.user.id,
+                            full_name: req.user.full_name,
+                            work_email: req.user.work_email
+                        }
+                    });
+
+                } catch (error) {
+                    console.error("Bulk Upload DB Error:", error);
+                    if (!res.headersSent) res.status(500).json({ message: "Database error during bulk upload." });
+                }
+            });
+    }).on('error', (e) => {
+        console.error("Cloudinary Stream Error:", e);
+        if (!res.headersSent) res.status(500).json({ message: "Error retrieving file from Cloudinary." });
+    });
 };
 
-// --- CREATE BROADCAST MESSAGE ---
 export const createBroadcast = async (req, res) => {
     try {
         const user = req.user;

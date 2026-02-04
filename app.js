@@ -34,6 +34,35 @@ app.get('/health', async (req, res) => {
     }
 });
 
+// 404 Handler for undefined routes
+app.use((req, res) => {
+    res.status(404).json({
+        success: false,
+        message: 'Route not found',
+        path: req.path
+    });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+    console.error('❌ Server Error:', err);
+
+    // Handle JSON parsing errors
+    if (err.type === 'entity.parse.failed') {
+        return res.status(400).json({
+            success: false,
+            message: 'Invalid JSON in request body'
+        });
+    }
+
+    // Handle other errors
+    res.status(err.status || 500).json({
+        success: false,
+        message: err.message || 'Internal Server Error',
+        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    });
+});
+
 // Initialize DB connections
 export const connectDB = async () => {
     try {

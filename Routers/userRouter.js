@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getPairingCode, loginUser, registerUser, resendCode, syatemReset, verifyUser } from "../Controllers/userController.js";
+import { getPairingCode, loginUser, registerUser, resendCode, syatemReset, verifyUser, getDashboard } from "../Controllers/userController.js";
 import {
     createContact,
     uploadBulkContacts,
@@ -19,6 +19,7 @@ import { csvUpload, broadcastMedia } from '../utils/uploadFiles.js';
 export const userRouter = Router();
 
 // User Auth Routes
+userRouter.get('/user/dashboard', authenticate, getDashboard);
 userRouter.post('/user/register', registerUser);
 userRouter.post('/user/login', loginUser);
 userRouter.post('/verify', authenticate, verifyUser);

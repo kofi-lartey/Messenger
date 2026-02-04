@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node --max-old-space-size=450 index.js",
+    "start": "node --max-old-space-size=450 app.js",
     "dev": "nodemon app.js",
     "postinstall": "PUPPETEER_CACHE_DIR=./.puppeteer_cache npx puppeteer browsers install chrome"
   },
@@ -32,6 +32,7 @@
     "node-cron": "^4.2.1",
     "normalize-mongoose": "^1.0.0",
     "pg": "^8.18.0",
+    "puppeteer": "^23.0.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "resend": "^6.9.1",

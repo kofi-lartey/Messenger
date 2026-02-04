@@ -5,7 +5,6 @@ import unzipper from 'unzipper';
 import fs from 'fs-extra';
 import qrcodeImage from 'qrcode';
 import { sql } from '../Config/db.js';
-import { BROWSERLESS_API_KEY } from '../Config/env.js';
 
 const activeClients = new Map();
 
@@ -75,24 +74,36 @@ export const initializeUserWhatsApp = async (userId) => {
         await restoreSessionFromDb(userId, user.whatsapp_session);
     }
 
-    const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}&--region=eu-central-1`;
+    // Use local Puppeteer (Chrome is installed via render-build.sh)
+    const puppeteerConfig = {
+        headless: true,
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage', // Important for cloud environments
+            '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            '--disable-blink-features=AutomationControlled',
+            '--lang=en-US,en;q=0.9',
+            '--disable-gpu',
+            '--disable-software-rasterizer',
+            '--disable-accelerated-2d-canvas',
+            '--disable-extensions',
+            '--disable-background-networking',
+            '--disable-sync',
+            '--disable-translate',
+            '--metrics-recording-only',
+            '--mute-audio',
+            '--no-first-run',
+            '--safebrowsing-disable-auto-update',
+        ]
+    };
+    console.log(`🚀 Using local Puppeteer for user ${userId} on Render`);
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: `user-${userId}` }),
-        authTimeoutMs: 60000,
-        puppeteer: {
-            browserWSEndpoint: browserlessUrl,
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                // --- ADD THESE THREE LINES ---
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-                '--disable-blink-features=AutomationControlled', // Hides the "I am a bot" flag
-                '--lang=en-US,en;q=0.9',
-            ]
-        },
-        // Switch to this specific version - it is currently the most stable for cloud linking
+        authTimeoutMs: 120000, // Increased to 2 minutes for cloud linking
+        puppeteer: puppeteerConfig,
+        // Use a more compatible web version for cloud environments
         webVersionCache: {
             type: 'remote',
             remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',

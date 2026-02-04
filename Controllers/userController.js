@@ -6,7 +6,7 @@ import { generateEmailCode } from '../utils/generatedToken.js';
 import { isWhatsAppReady, whatsappClient, latestQRCode, setWhatsAppStatus } from '../utils/whatsapp-client.js';
 import { formatPhoneNumber } from '../utils/numberChecker.js';
 import { Resend } from 'resend';
-import { initializeUserWhatsApp } from '../utils/WhatsAppManager.js';
+import { getClient, initializeUserWhatsApp } from '../utils/WhatsAppManager.js';
 
 /**
  * 1. Register User & Return QR/Pairing Code

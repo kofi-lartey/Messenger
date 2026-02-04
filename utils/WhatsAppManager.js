@@ -9,12 +9,26 @@ import { BROWSERLESS_API_KEY } from '../Config/env.js';
 
 const activeClients = new Map();
 
-// --- HELPERS: SESSION PERSISTENCE (Saves session to NeonDB so Render restarts don't log you out) ---
+// --- HELPERS: DEBUG & PERSISTENCE ---
+
+/**
+ * Captures what the browser sees and saves it to the DB
+ */
+const captureDebugScreenshot = async (userId, client) => {
+    try {
+        if (!client.pupPage) return;
+        const screenshot = await client.pupPage.screenshot({ encoding: 'base64' });
+        const dataUri = `data:image/png;base64,${screenshot}`;
+        await sql`UPDATE users SET debug_screenshot = ${dataUri} WHERE id = ${userId}`;
+        console.log(`📸 Debug screenshot captured for User ${userId}`);
+    } catch (err) {
+        console.error("Failed debug screenshot:", err.message);
+    }
+};
 
 const saveSessionToDb = async (userId) => {
     const sessionDir = `./.wwebjs_auth/session-user-${userId}`;
     const zipPath = `./session-${userId}.zip`;
-
     if (!fs.existsSync(sessionDir)) return;
 
     const output = fs.createWriteStream(zipPath);
@@ -27,7 +41,7 @@ const saveSessionToDb = async (userId) => {
                 const base64 = buffer.toString('base64');
                 await sql`UPDATE users SET whatsapp_session = ${base64} WHERE id = ${userId}`;
                 await fs.remove(zipPath);
-                console.log(`💾 Session zipped and saved to DB for User ${userId}`);
+                console.log(`💾 Session saved to DB for ${userId}`);
                 resolve();
             } catch (err) { reject(err); }
         });
@@ -41,16 +55,11 @@ const saveSessionToDb = async (userId) => {
 const restoreSessionFromDb = async (userId, sessionBase64) => {
     const sessionDir = `./.wwebjs_auth/session-user-${userId}`;
     const zipPath = `./restore-${userId}.zip`;
-
     await fs.ensureDir(sessionDir);
     await fs.writeFile(zipPath, Buffer.from(sessionBase64, 'base64'));
-
-    await fs.createReadStream(zipPath)
-        .pipe(unzipper.Extract({ path: sessionDir }))
-        .promise();
-
+    await fs.createReadStream(zipPath).pipe(unzipper.Extract({ path: sessionDir })).promise();
     await fs.remove(zipPath);
-    console.log(`📦 Session restored from DB for User ${userId}`);
+    console.log(`📦 Session restored for ${userId}`);
 };
 
 // --- MAIN MANAGER ---
@@ -60,58 +69,73 @@ export const getClient = (userId) => activeClients.get(userId);
 export const initializeUserWhatsApp = async (userId) => {
     if (activeClients.has(userId)) return activeClients.get(userId);
 
-    // 1. Restore Session from NeonDB if it exists
+    // 1. Restore Session from DB
     const [user] = await sql`SELECT whatsapp_session FROM users WHERE id = ${userId}`;
     if (user?.whatsapp_session) {
         await restoreSessionFromDb(userId, user.whatsapp_session);
     }
 
-    // 2. Browserless Region Strategy: Use Europe (Frankfurt) as a bridge between US and Ghana
     const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}&--region=eu-central-1`;
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: `user-${userId}` }),
+        authTimeoutMs: 60000, // Wait 1 min for auth
         puppeteer: {
             browserWSEndpoint: browserlessUrl,
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--lang=en-GB', // Use British English to match GMT timezone in Ghana
-                '--disable-gpu'
+                '--lang=en-GB',
+                '--disable-gpu',
+                '--disable-dev-shm-usage'
             ]
         },
-        // Force a stable web version to bypass "Couldn't Link" errors
+        // Updated to a known stable web version
         webVersionCache: {
             type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018.x.html',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018593414-alpha.html',
         }
     });
 
-    // 3. Handle QR Code Generation
+    // 2. Handle QR Code
     client.on('qr', async (qr) => {
         try {
             const qrImage = await qrcodeImage.toDataURL(qr);
             await sql`UPDATE users SET last_qr_code = ${qrImage}, whatsapp_status = 'AWAITING_SCAN' WHERE id = ${userId}`;
-            console.log(`📥 QR updated in DB for User ${userId}`);
+            console.log(`📥 QR generated for ${userId}`);
         } catch (err) { console.error("QR Error:", err); }
     });
 
-    // 4. Handle Successful Connection
+    // 3. Handle Ready
     client.on('ready', async () => {
         console.log(`✅ User ${userId} is READY`);
-        await sql`UPDATE users SET whatsapp_status = 'CONNECTED', last_qr_code = NULL WHERE id = ${userId}`;
-        // Save fresh session files back to DB
+        await sql`UPDATE users SET whatsapp_status = 'CONNECTED', last_qr_code = NULL, debug_screenshot = NULL WHERE id = ${userId}`;
         await saveSessionToDb(userId);
+    });
+
+    // 4. Handle Failures (Debug Mode)
+    client.on('auth_failure', async (msg) => {
+        console.error(`🔒 Auth Failure for ${userId}:`, msg);
+        await captureDebugScreenshot(userId, client);
+        await sql`UPDATE users SET whatsapp_status = 'AUTH_FAILURE' WHERE id = ${userId}`;
     });
 
     client.on('disconnected', async (reason) => {
         console.log(`❌ User ${userId} disconnected:`, reason);
+        // Only take screenshot if it wasn't a manual logout
+        if (reason !== 'LOGOUT') await captureDebugScreenshot(userId, client);
         activeClients.delete(userId);
-        await sql`UPDATE users SET whatsapp_status = 'DISCONNECTED', whatsapp_session = NULL WHERE id = ${userId}`;
+        await sql`UPDATE users SET whatsapp_status = 'DISCONNECTED' WHERE id = ${userId}`;
     });
 
-    client.initialize().catch(err => console.error(`Init error ${userId}:`, err));
+    // 5. Initialize
+    client.initialize().catch(async (err) => {
+        console.error(`Init error ${userId}:`, err);
+        await captureDebugScreenshot(userId, client);
+        await sql`UPDATE users SET whatsapp_status = 'ERROR' WHERE id = ${userId}`;
+    });
+
     activeClients.set(userId, client);
     return client;
 };

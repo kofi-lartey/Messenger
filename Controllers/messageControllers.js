@@ -57,22 +57,20 @@ export const uploadBulkContacts = async (req, res) => {
     const validGroups = ['VIP', 'SUPPORT', 'VENDOR', 'MARKETERS', 'LOGISTICS', 'PARTNERS', 'MEMBERS', 'STAFF'];
     const results = [];
 
-    // Temp file path for processing
-    const tempPath = `/tmp/contacts_${Date.now()}_${req.file.originalname}`;
+    // Temp file path for processing (use relative path for Windows compatibility)
+    const tempPath = `./temp_${Date.now()}_${req.file.originalname}`;
 
     try {
-        // Download file from Cloudinary to temp location
-        const downloadResult = await cloudinary.uploader.upload(req.file.path, {
-            resource_type: 'auto',
-            folder: 'messenger/temp'
-        });
-
-        // Use the secure_url from the uploaded file to download
+        // Get the file URL from Cloudinary (already uploaded by multer-storage-cloudinary)
         const fileUrl = req.file.secure_url || req.file.path;
+
+        if (!fileUrl) {
+            throw new Error('No file URL available from uploaded file');
+        }
 
         // Fetch the file content and write to temp path
         const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error('Failed to download file from Cloudinary');
+        if (!response.ok) throw new Error(`Failed to download file from Cloudinary: ${response.statusText}`);
 
         const arrayBuffer = await response.arrayBuffer();
         fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
@@ -150,7 +148,7 @@ export const createBroadcast = async (req, res) => {
     try {
         const user = req.user;
 
-        if (user.status !== 'active') {
+        if (user.status !== 'activate') {
             // Clean up uploaded file from Cloudinary if exists
             if (req.file) {
                 try {
@@ -238,7 +236,7 @@ export const createBroadcast = async (req, res) => {
 
 // --- TRIGGER BROADCAST (IMMEDIATE SENDING) ---
 export const triggerBroadcast = async (req, res) => {
-    if (req.user.status !== 'active') {
+    if (req.user.status !== 'activate') {
         return res.status(403).json({ message: "Unauthorized. Please activate your account." });
     }
 

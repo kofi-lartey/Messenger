@@ -7,22 +7,19 @@ import qrcodeImage from 'qrcode';
 export let isWhatsAppReady = false;
 export let latestQRCode = null;
 let isProcessingQR = false;
+let restartAttempts = 0;
+const MAX_RESTARTS = 5;
 
-/**
- * Updates the global readiness state.
- * Used by the system-reset controller to avoid "Assignment to constant" errors.
- */
 export const setWhatsAppStatus = (status) => {
     isWhatsAppReady = status;
 };
 
-// Render-specific check
 const isRender = process.env.RENDER === 'true';
 
 const whatsappClient = new Client({
     authStrategy: new LocalAuth(),
-    qrMaxRetries: 20,          // Increased retries for more stability
-    authTimeoutMs: 300000,     // 5-minute timeout for slow handshakes
+    qrMaxRetries: 15,
+    authTimeoutMs: 300000,
     puppeteer: {
         headless: true,
         protocolTimeout: 300000,
@@ -32,22 +29,11 @@ const whatsappClient = new Client({
             '--disable-setuid-sandbox',
             '--disable-dev-shm-usage',
             '--disable-gpu',
-            '--disable-software-rasterizer',
             '--disable-extensions',
-            '--proxy-server="direct://"',
-            '--proxy-bypass-list=*',
-            // Render Memory optimizations
             '--js-flags="--max-old-space-size=400"',
-            '--disable-datasaver-navigation',
-            '--disable-features=IsolateOrigins,site-per-process',
-            '--js-flags="--max-old-space-size=400"', // Force JS to stay under Render's 512MB,
-            // --- SLIM MODE FLAGS ---
-            '--hide-scrollbars',
-            '--disable-notifications',
-            '--disable-logging',
-            '--disable-permissions-api',
-            '--disable-default-apps',
-            '--mute-audio',
+            '--disable-web-security',
+            '--no-first-run',
+            // Your Render-specific flags
             ...(isRender ? ['--single-process', '--no-zygote'] : [])
         ],
     },
@@ -57,28 +43,21 @@ const whatsappClient = new Client({
     }
 });
 
-// --- Event Listeners ---
-
+// --- QR Logic ---
 whatsappClient.on('qr', async (qr) => {
-    // Prevent rapid-fire processing to save CPU/Network on Render
     if (isProcessingQR || isWhatsAppReady) return;
-
     isProcessingQR = true;
-    console.log('--- NEW QR GENERATED (Throttled) ---');
 
-    // Show in terminal for server logs
+    console.log('--- NEW QR GENERATED ---');
     qrcodeTerminal.generate(qr, { small: true });
 
     try {
-        // Wait 3 seconds to let the engine "breathe" before generating the Base64 image
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // Generate the Image for Postman Visualize
+        await new Promise(resolve => setTimeout(resolve, 2000));
         latestQRCode = await qrcodeImage.toDataURL(qr);
-        console.log('✅ QR Image Ready for Postman');
+        console.log('✅ QR Image Ready');
     } catch (err) {
-        console.error('Error generating Base64 QR:', err);
-        latestQRCode = qr; // Fallback to raw string
+        console.error('QR Image Gen Error:', err);
+        latestQRCode = qr;
     } finally {
         isProcessingQR = false;
     }
@@ -87,31 +66,53 @@ whatsappClient.on('qr', async (qr) => {
 whatsappClient.on('ready', () => {
     console.log('✅ WhatsApp Engine is Ready');
     isWhatsAppReady = true;
-    latestQRCode = null; // Clear QR once connected
+    latestQRCode = null;
+    restartAttempts = 0; // Reset counter on successful login
 });
 
-whatsappClient.on('authenticated', () => {
-    console.log('👍 WhatsApp Authenticated (Linking successful)');
-});
-
-whatsappClient.on('auth_failure', (msg) => {
-    console.error('❌ Auth Failure:', msg);
-    isWhatsAppReady = false;
-});
-
-whatsappClient.on('disconnected', (reason) => {
-    console.log('WhatsApp disconnected:', reason);
+// --- Robust Disconnect & Retry Logic ---
+whatsappClient.on('disconnected', async (reason) => {
+    console.log(`❌ WhatsApp disconnected: ${reason}`);
     isWhatsAppReady = false;
     latestQRCode = null;
 
-    // Attempt to re-initialize after 10 seconds to avoid loop spam
-    setTimeout(() => {
-        console.log('Attempting to restart WhatsApp Engine...');
-        whatsappClient.initialize();
-    }, 10000);
+    if (restartAttempts >= MAX_RESTARTS) {
+        console.error('🚫 MAX RESTART ATTEMPTS REACHED. Please check logs and restart manually.');
+        return;
+    }
+
+    if (reason === 'LOGOUT' || reason === 'NAVIGATION') {
+        console.log('⚠️ Session invalid. Destroying client...');
+        try {
+            await whatsappClient.destroy();
+        } catch (e) {
+            console.log("Cleanup: Client already destroyed.");
+        }
+    }
+
+    restartAttempts++;
+    const delay = 10000 * restartAttempts; // Exponential backoff (10s, 20s, 30s...)
+
+    console.log(`🔄 Restart attempt ${restartAttempts}/${MAX_RESTARTS} in ${delay / 1000}s...`);
+
+    setTimeout(async () => {
+        try {
+            await whatsappClient.initialize();
+        } catch (err) {
+            console.error("Initialization failed during restart:", err.message);
+        }
+    }, delay);
 });
 
-// Initialize the client
-whatsappClient.initialize();
+// Prevent the "Execution Context Destroyed" from crashing the whole Node process
+process.on('unhandledRejection', (reason) => {
+    if (reason?.message?.includes('Execution context was destroyed')) {
+        console.log('🛠 Handled background navigation error. Waiting for disconnect/reinit...');
+    } else {
+        console.error('Unhandled Rejection:', reason);
+    }
+});
+
+whatsappClient.initialize().catch(err => console.error("Initial Load Error:", err));
 
 export { whatsappClient };

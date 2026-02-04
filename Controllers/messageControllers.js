@@ -16,14 +16,19 @@ export const createContact = async (req, res) => {
         const { full_name, whatsapp_number, organization, location, group } = req.body;
 
         const contact = await sql`
-            INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group)
-            VALUES (${full_name}, ${whatsapp_number}, ${organization}, ${location}, ${group || 'MEMBERS'})
+            INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
+            VALUES (${full_name}, ${whatsapp_number}, ${organization}, ${location}, ${group || 'MEMBERS'}, ${user.id})
             RETURNING *
         `;
 
         res.status(201).json({
             message: 'Contact added successfully',
-            contact: contact[0]
+            contact: contact[0],
+            createdBy: {
+                id: user.id,
+                full_name: user.full_name,
+                work_email: user.work_email
+            }
         });
     } catch (error) {
         res.status(400).json({ message: error.message });
@@ -45,13 +50,20 @@ export const uploadBulkContacts = async (req, res) => {
             try {
                 for (const row of results) {
                     await sql`
-                        INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group)
-                        VALUES (${row.fullName}, ${row.contact}, ${row.organization}, ${row.location}, ${row.group || 'MEMBERS'})
+                        INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
+                        VALUES (${row.fullName}, ${row.contact}, ${row.organization}, ${row.location}, ${row.group || 'MEMBERS'}, ${req.user.id})
                         ON CONFLICT (whatsapp_number) DO NOTHING
                     `;
                 }
                 fs.unlinkSync(req.file.path);
-                res.status(200).json({ message: `Bulk upload successful: ${results.length} processed.` });
+                res.status(200).json({
+                    message: `Bulk upload successful: ${results.length} processed.`,
+                    createdBy: {
+                        id: req.user.id,
+                        full_name: req.user.full_name,
+                        work_email: req.user.work_email
+                    }
+                });
             } catch (error) {
                 console.error("Bulk Upload Error:", error);
                 res.status(500).json({ message: "Database error during bulk upload." });
@@ -84,8 +96,8 @@ export const createBroadcast = async (req, res) => {
 
         // Create the broadcast message first
         const broadcastResult = await sql`
-            INSERT INTO broadcastmessages (campaign_name, message_title, message_body, media_url, action_link)
-            VALUES (${campaign_name || 'General'}, ${message_title || 'No Title'}, ${message_body}, ${media_url || null}, ${action_link || null})
+            INSERT INTO broadcastmessages (campaign_name, message_title, message_body, media_url, action_link, created_by)
+            VALUES (${campaign_name || 'General'}, ${message_title || 'No Title'}, ${message_body}, ${media_url || null}, ${action_link || null}, ${user.id})
             RETURNING *
         `;
 
@@ -105,6 +117,11 @@ export const createBroadcast = async (req, res) => {
                     broadcast_id: broadcastId,
                     scheduled_time: scheduled_time,
                     type: 'scheduled'
+                },
+                createdBy: {
+                    id: user.id,
+                    full_name: user.full_name,
+                    work_email: user.work_email
                 }
             });
         }
@@ -115,6 +132,11 @@ export const createBroadcast = async (req, res) => {
             data: {
                 broadcast_id: broadcastId,
                 type: 'immediate'
+            },
+            createdBy: {
+                id: user.id,
+                full_name: user.full_name,
+                work_email: user.work_email
             }
         });
 

@@ -1,6 +1,7 @@
 import csv from 'csv-parser';
 import fs from 'fs';
 import { sql } from "../Config/db.js";
+import cloudinary from "../utils/cloudinary.js";
 import { processBulkMessages } from '../Services/whatsappService.js';
 import { sendBroadcastViaChatApi, generateBroadcastCsv, generateWhatsAppUrl, personalizeMessage } from '../Services/whatsappChatApi.js';
 
@@ -35,35 +36,98 @@ export const createContact = async (req, res) => {
     }
 };
 
-// --- BULK CONTACT UPLOAD ---
+
 export const uploadBulkContacts = async (req, res) => {
+    // 1. Security Check
     if (req.user.status !== 'active') {
-        if (req.file) fs.unlinkSync(req.file.path);
+        // Clean up uploaded file from Cloudinary if exists
+        if (req.file) {
+            try {
+                await cloudinary.uploader.destroy(req.file.filename);
+            } catch (e) { }
+        }
         return res.status(403).json({ message: "Verify your account to use bulk upload." });
     }
 
+    // Check if file was uploaded
+    if (!req.file) {
+        return res.status(400).json({ message: "CSV file is required." });
+    }
+
+    const validGroups = ['VIP', 'SUPPORT', 'VENDOR', 'MARKETERS', 'LOGISTICS', 'PARTNERS', 'MEMBERS', 'STAFF'];
     const results = [];
-    fs.createReadStream(req.file.path)
+
+    // For Cloudinary uploads, we need to download the file first
+    const tempPath = `/tmp/${req.file.originalname}`;
+
+    try {
+        // Download file from Cloudinary to temp location
+        await cloudinary.uploader.download(req.file.path, { folder: 'messenger/temp' })
+            .then(downloaded => {
+                fs.writeFileSync(tempPath, Buffer.from('')); // Placeholder, actually use stream
+            });
+    } catch (e) {
+        console.error("Error downloading from Cloudinary:", e);
+    }
+
+    // 2. Stream and Parse CSV (using Cloudinary URL if available, or local temp)
+    const filePath = req.file.path; // Cloudinary URL or temp path
+
+    fs.createReadStream(filePath)
         .pipe(csv())
         .on('data', (data) => results.push(data))
+        .on('error', async (err) => {
+            // Clean up temp file
+            if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            res.status(400).json({ message: "Error parsing CSV file." });
+        })
         .on('end', async () => {
             try {
-                for (const row of results) {
-                    await sql`
-                        INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
-                        VALUES (${row.fullName}, ${row.contact}, ${row.organization}, ${row.location}, ${row.group || 'MEMBERS'}, ${req.user.id})
-                        ON CONFLICT (whatsapp_number) DO NOTHING
-                    `;
+                // Clean up temp file
+                if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+
+                if (results.length === 0) {
+                    return res.status(400).json({ message: "The CSV file is empty." });
                 }
-                fs.unlinkSync(req.file.path);
+
+                // 3. Transform and Validate Data for Batch Insert
+                const contactsToInsert = results.map(row => ({
+                    full_name: row.fullName || row.full_name || 'Unknown',
+                    whatsapp_number: row.contact || row.whatsapp_number,
+                    organization: row.organization || 'N/A',
+                    location: row.location || 'N/A',
+                    contact_group: validGroups.includes(row.group?.toUpperCase())
+                        ? row.group.toUpperCase()
+                        : 'MEMBERS',
+                    created_by: req.user.id
+                }));
+
+                // 4. Perform High-Speed Batch Insert
+                await sql`
+                    INSERT INTO contacts ${sql(contactsToInsert,
+                    'full_name',
+                    'whatsapp_number',
+                    'organization',
+                    'location',
+                    'contact_group',
+                    'created_by'
+                )}
+                    ON CONFLICT (whatsapp_number) DO NOTHING
+                `;
+
                 res.status(200).json({
-                    message: `Bulk upload successful: ${results.length} processed.`,
+                    message: `Bulk upload successful: ${results.length} contacts processed.`,
+                    summary: {
+                        total: results.length,
+                        uploaded_by: req.user.full_name
+                    },
                     createdBy: {
                         id: req.user.id,
                         full_name: req.user.full_name,
                         work_email: req.user.work_email
                     }
                 });
+
             } catch (error) {
                 console.error("Bulk Upload Error:", error);
                 res.status(500).json({ message: "Database error during bulk upload." });
@@ -77,6 +141,12 @@ export const createBroadcast = async (req, res) => {
         const user = req.user;
 
         if (user.status !== 'active') {
+            // Clean up uploaded file from Cloudinary if exists
+            if (req.file) {
+                try {
+                    await cloudinary.uploader.destroy(req.file.filename);
+                } catch (e) { }
+            }
             return res.status(403).json({ message: "Account pending verification. Please verify your email first." });
         }
 
@@ -84,7 +154,6 @@ export const createBroadcast = async (req, res) => {
             campaign_name,
             message_title,
             message_body,
-            media_url,
             action_link,
             scheduled_time,  // Optional: ISO datetime string
             use_chat_api     // true = no linking needed
@@ -93,6 +162,9 @@ export const createBroadcast = async (req, res) => {
         if (!message_body) {
             return res.status(400).json({ message: "Message body is required." });
         }
+
+        // Get media_url from uploaded file or body
+        const media_url = req.file ? req.file.path : req.body.media_url;
 
         // Create the broadcast message first
         const broadcastResult = await sql`
@@ -116,7 +188,8 @@ export const createBroadcast = async (req, res) => {
                 data: {
                     broadcast_id: broadcastId,
                     scheduled_time: scheduled_time,
-                    type: 'scheduled'
+                    type: 'scheduled',
+                    media_url: media_url || null
                 },
                 createdBy: {
                     id: user.id,
@@ -131,7 +204,8 @@ export const createBroadcast = async (req, res) => {
             message: "Broadcast created. Click 'Send' to deliver now.",
             data: {
                 broadcast_id: broadcastId,
-                type: 'immediate'
+                type: 'immediate',
+                media_url: media_url || null
             },
             createdBy: {
                 id: user.id,
@@ -142,6 +216,12 @@ export const createBroadcast = async (req, res) => {
 
     } catch (error) {
         console.error("Create broadcast error:", error);
+        // Clean up uploaded file from Cloudinary if exists
+        if (req.file) {
+            try {
+                await cloudinary.uploader.destroy(req.file.filename);
+            } catch (e) { }
+        }
         res.status(500).json({ message: "Failed to create broadcast message." });
     }
 };

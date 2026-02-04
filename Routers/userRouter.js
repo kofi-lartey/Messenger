@@ -13,6 +13,7 @@ import {
 } from "../Controllers/messageControllers.js";
 import { authenticate } from "../Middleware/auth.js";
 import { resendLimiter } from '../utils/rateLimiters.js';
+import { csvUpload, broadcastMedia } from '../utils/uploadFiles.js';
 
 
 export const userRouter = Router();
@@ -27,16 +28,16 @@ userRouter.get('/system-reset', syatemReset);
 
 // Contact Routes
 userRouter.post('/contact/create', authenticate, createContact);
-userRouter.post('/contacts/upload', authenticate, uploadBulkContacts);
+userRouter.post('/contacts/upload', authenticate, csvUpload, uploadBulkContacts);
 
 // Broadcast Routes - Create
-userRouter.post('/broadcast/create', authenticate, createBroadcast);
+userRouter.post('/broadcast/create', authenticate, broadcastMedia, createBroadcast);
 
 // Broadcast Routes - Send Immediately
 userRouter.post('/broadcast/send', authenticate, triggerBroadcast);
 
 // Broadcast Routes - Schedule
-userRouter.post('/broadcast/schedule', authenticate, createBroadcast);
+userRouter.post('/broadcast/schedule', authenticate, broadcastMedia, createBroadcast);
 
 // Broadcast Routes - Management
 userRouter.get('/broadcasts', authenticate, getAllBroadcasts);

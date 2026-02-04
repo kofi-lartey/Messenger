@@ -30,3 +30,9 @@ export const RESEND_API_KEY = process.env.RESEND_API_KEY;
 export const BROWSERLESS_API_KEY = process.env.BROWSERLESS_API_KEY 
 
 export const MY_SECRET_KEY = process.env.MY_SECRET_KEY || 'Pleaseyou5';
+
+// cloudinary keys
+export const CLOUD_NAME = process.env.CLOUD_NAME
+export const CLOUD_API_KEY = process.env.CLOUD_API_KEY
+export const CLOUD_API_SECRET = process.env.CLOUD_API_SECRET
+export const CLIENT_URL = process.env.CLIENT_URL

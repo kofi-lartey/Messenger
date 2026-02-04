@@ -17,8 +17,14 @@ const documentStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: "messenger/documents",
-        allowed_formats: ["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt", "json"],
-        resource_type: "auto"
+        // 1. Remove allowed_formats entirely for documents
+        // 2. Set resource_type to 'raw' (this is how Cloudinary handles CSVs/Docs)
+        resource_type: "raw",
+        // 3. Use public_id to keep the original extension
+        public_id: (req, file) => {
+            const extension = file.originalname.split('.').pop();
+            return `${Date.now()}-${file.originalname.replace(`.${extension}`, '')}`;
+        }
     },
 });
 

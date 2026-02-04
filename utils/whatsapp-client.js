@@ -47,7 +47,7 @@ const whatsappClient = new Client({
 whatsappClient.on('qr', async (qr) => {
     if (isProcessingQR || isWhatsAppReady) return;
     isProcessingQR = true;
-
+    console.log('QR Raw String:', qr.substring(0, 30) + '...');
     console.log('--- NEW QR GENERATED ---');
     qrcodeTerminal.generate(qr, { small: true });
 

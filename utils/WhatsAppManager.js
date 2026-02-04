@@ -12,6 +12,42 @@ const activeClients = new Map();
 // --- HELPERS: DEBUG & PERSISTENCE ---
 
 /**
+ * Finds Chrome executable path
+ */
+const findChromeExecutable = () => {
+    // Check environment variable first (set in render-build.sh)
+    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
+        console.log(`Using PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
+        return process.env.PUPPETEER_EXECUTABLE_PATH;
+    }
+
+    // Check common system paths
+    const systemPaths = [
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/google-chrome',
+        '/usr/bin/google-chrome-stable'
+    ];
+
+    for (const chromePath of systemPaths) {
+        if (fs.existsSync(chromePath)) {
+            console.log(`Found system Chrome: ${chromePath}`);
+            return chromePath;
+        }
+    }
+
+    // Check whatsapp-web.js bundled chromium
+    const bundledPath = './node_modules/whatsapp-web.js/.chrome/chrome-linux/chrome';
+    if (fs.existsSync(bundledPath)) {
+        console.log(`Found bundled Chrome: ${bundledPath}`);
+        return bundledPath;
+    }
+
+    console.log('No Chrome found, letting whatsapp-web.js handle it');
+    return undefined;
+};
+
+/**
  * Captures what the browser sees and saves it to the DB
  */
 const captureDebugScreenshot = async (userId, client) => {
@@ -80,43 +116,17 @@ export const initializeUserWhatsApp = async (userId) => {
 
     console.log(`🚀 Initializing WhatsApp for user ${userId}`);
 
-    // Check if we should use Browserless or local Chrome
-    const useBrowserless = BROWSERLESS_API_KEY && !process.env.USE_LOCAL_CHROME;
+    // Find Chrome executable
+    const chromeExecutable = findChromeExecutable();
 
-    let clientConfig = {
+    const client = new Client({
         authStrategy: new LocalAuth({
             clientId: `user-${userId}`,
             dataPath: './.wwebjs_auth'
         }),
         authTimeoutMs: 180000,
-        webVersionCache: {
-            type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
-        }
-    };
-
-    if (useBrowserless) {
-        // Use Browserless.io
-        const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`;
-        console.log(`📡 Using Browserless.io`);
-        clientConfig.puppeteer = {
-            browserWSEndpoint: browserlessUrl,
-            headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--window-size=1920,1080',
-                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                '--disable-blink-features=AutomationControlled',
-                '--disable-web-security',
-                '--lang=en-US,en;q=0.9',
-            ]
-        };
-    } else {
-        // Use local Puppeteer/Chrome
-        console.log(`📡 Using local Chrome (Puppeteer)`);
-        clientConfig.puppeteer = {
+        puppeteer: {
+            ...(chromeExecutable && { executablePath: chromeExecutable }),
             headless: true,
             args: [
                 '--no-sandbox',
@@ -129,10 +139,12 @@ export const initializeUserWhatsApp = async (userId) => {
                 '--disable-web-security',
                 '--lang=en-US,en;q=0.9',
             ]
-        };
-    }
-
-    const client = new Client(clientConfig);
+        },
+        webVersionCache: {
+            type: 'remote',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
+        }
+    });
 
     // 2. Handle QR Code
     client.on('qr', async (qr) => {

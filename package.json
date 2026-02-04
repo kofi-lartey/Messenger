@@ -7,8 +7,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node --max-old-space-size=450 app.js",
-    "dev": "nodemon app.js",
-    "postinstall": "npx puppeteer browsers install chrome"
+    "dev": "nodemon app.js"
   },
   "keywords": [],
   "author": "",
@@ -32,7 +31,6 @@
     "node-cron": "^4.2.1",
     "normalize-mongoose": "^1.0.0",
     "pg": "^8.18.0",
-    "puppeteer": "^22.0.0",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
     "resend": "^6.9.1",

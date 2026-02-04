@@ -83,6 +83,9 @@ export const registerUser = async (req, res) => {
         const existUser = await sql`SELECT * FROM users WHERE work_email = ${work_email}`;
         if (existUser.length > 0) return res.status(400).json({ message: 'User already exists' });
 
+        const existUserNumber = await sql`SELECT * FROM users WHERE whatsapp_number = ${whatsapp_number}`;
+        if (existUserNumber.length > 0) return res.status(400).json({ message: 'User already exists' });
+
         const cleanedNumber = formatPhoneNumber(whatsapp_number);
         const vCode = generateEmailCode();
         const hashedPassword = await bcrypt.hash(password, 10);

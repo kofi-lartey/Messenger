@@ -12,42 +12,6 @@ const activeClients = new Map();
 // --- HELPERS: DEBUG & PERSISTENCE ---
 
 /**
- * Finds Chrome executable path
- */
-const findChromeExecutable = () => {
-    // Check environment variable first (set in render-build.sh)
-    if (process.env.PUPPETEER_EXECUTABLE_PATH && fs.existsSync(process.env.PUPPETEER_EXECUTABLE_PATH)) {
-        console.log(`Using PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH}`);
-        return process.env.PUPPETEER_EXECUTABLE_PATH;
-    }
-
-    // Check common system paths
-    const systemPaths = [
-        '/usr/bin/chromium',
-        '/usr/bin/chromium-browser',
-        '/usr/bin/google-chrome',
-        '/usr/bin/google-chrome-stable'
-    ];
-
-    for (const chromePath of systemPaths) {
-        if (fs.existsSync(chromePath)) {
-            console.log(`Found system Chrome: ${chromePath}`);
-            return chromePath;
-        }
-    }
-
-    // Check whatsapp-web.js bundled chromium
-    const bundledPath = './node_modules/whatsapp-web.js/.chrome/chrome-linux/chrome';
-    if (fs.existsSync(bundledPath)) {
-        console.log(`Found bundled Chrome: ${bundledPath}`);
-        return bundledPath;
-    }
-
-    console.log('No Chrome found, letting whatsapp-web.js handle it');
-    return undefined;
-};
-
-/**
  * Captures what the browser sees and saves it to the DB
  */
 const captureDebugScreenshot = async (userId, client) => {
@@ -116,8 +80,8 @@ export const initializeUserWhatsApp = async (userId) => {
 
     console.log(`🚀 Initializing WhatsApp for user ${userId}`);
 
-    // Find Chrome executable
-    const chromeExecutable = findChromeExecutable();
+    // Browserless.io configuration
+    const browserlessUrl = `wss://chrome.browserless.io?token=${BROWSERLESS_API_KEY}`;
 
     const client = new Client({
         authStrategy: new LocalAuth({
@@ -126,17 +90,15 @@ export const initializeUserWhatsApp = async (userId) => {
         }),
         authTimeoutMs: 180000,
         puppeteer: {
-            ...(chromeExecutable && { executablePath: chromeExecutable }),
+            browserWSEndpoint: browserlessUrl,
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-gpu',
                 '--window-size=1920,1080',
                 '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 '--disable-blink-features=AutomationControlled',
-                '--disable-web-security',
                 '--lang=en-US,en;q=0.9',
             ]
         },

@@ -22,7 +22,6 @@ userRouter.post('/user/register', registerUser);
 userRouter.post('/user/login', loginUser);
 userRouter.post('/verify', authenticate, verifyUser);
 userRouter.post('/resend-code', authenticate, resendLimiter, resendCode);  // Add ?method=email or ?method=whatsapp
-userRouter.post('/link-phone', authenticate, resendLimiter, resendCode);
 userRouter.get('/get-pairing-code', authenticate, resendLimiter, getPairingCode);
 userRouter.get('/system-reset', syatemReset);
 

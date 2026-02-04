@@ -9,7 +9,7 @@ export const createContact = async (req, res) => {
     try {
         const user = req.user;
 
-        if (user.status !== 'active') {
+        if (user.status !== 'activate') {
             return res.status(403).json({ message: "Account pending verification. Please verify your email first." });
         }
 

@@ -79,22 +79,23 @@ export const initializeUserWhatsApp = async (userId) => {
 
     const client = new Client({
         authStrategy: new LocalAuth({ clientId: `user-${userId}` }),
-        authTimeoutMs: 60000, // Wait 1 min for auth
+        authTimeoutMs: 60000,
         puppeteer: {
             browserWSEndpoint: browserlessUrl,
             headless: true,
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--lang=en-GB',
-                '--disable-gpu',
-                '--disable-dev-shm-usage'
+                // --- ADD THESE THREE LINES ---
+                '--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                '--disable-blink-features=AutomationControlled', // Hides the "I am a bot" flag
+                '--lang=en-US,en;q=0.9',
             ]
         },
-        // Updated to a known stable web version
+        // Switch to this specific version - it is currently the most stable for cloud linking
         webVersionCache: {
             type: 'remote',
-            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.3000.1018593414-alpha.html',
+            remotePath: 'https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/2.2412.54.html',
         }
     });
 

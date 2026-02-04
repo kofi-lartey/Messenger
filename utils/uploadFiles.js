@@ -2,22 +2,22 @@ import multer from "multer";
 import cloudinary from "../utils/cloudinary.js";
 import { CloudinaryStorage } from "multer-storage-cloudinary";
 
-// Storage for images (jpg, jpeg, png, gif)
+// Storage for images (jpg, jpeg, png, gif, webp, svg, heic, bmp)
 const imageStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: "messenger/images",
-        allowed_formats: ["jpg", "jpeg", "png", "gif", "webp"],
+        allowed_formats: ["jpg", "jpeg", "png", "gif", "webp", "svg", "heic", "bmp", "tiff"],
         transformation: [{ width: 1200, height: 1200, crop: "limit" }]
     },
 });
 
-// Storage for documents (pdf, doc, docx, xls, xlsx, csv)
+// Storage for documents (pdf, doc, docx, xls, xlsx, csv, txt, json)
 const documentStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: "messenger/documents",
-        allowed_formats: ["pdf", "doc", "docx", "xls", "xlsx", "csv"],
+        allowed_formats: ["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt", "json"],
         resource_type: "auto"
     },
 });
@@ -27,7 +27,7 @@ const mediaStorage = new CloudinaryStorage({
     cloudinary: cloudinary,
     params: {
         folder: "messenger/media",
-        allowed_formats: ["jpg", "jpeg", "png", "gif", "webp", "pdf", "mp4", "mov", "avi"],
+        allowed_formats: ["jpg", "jpeg", "png", "gif", "webp", "svg", "heic", "heif", "pdf", "mp4", "mov", "avi", "doc", "docx", "txt", "zip"],
         resource_type: "auto"
     },
 });

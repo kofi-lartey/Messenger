@@ -57,28 +57,38 @@ export const uploadBulkContacts = async (req, res) => {
     const validGroups = ['VIP', 'SUPPORT', 'VENDOR', 'MARKETERS', 'LOGISTICS', 'PARTNERS', 'MEMBERS', 'STAFF'];
     const results = [];
 
-    // For Cloudinary uploads, we need to download the file first
-    const tempPath = `/tmp/${req.file.originalname}`;
+    // Temp file path for processing
+    const tempPath = `/tmp/contacts_${Date.now()}_${req.file.originalname}`;
 
     try {
         // Download file from Cloudinary to temp location
-        await cloudinary.uploader.download(req.file.path, { folder: 'messenger/temp' })
-            .then(downloaded => {
-                fs.writeFileSync(tempPath, Buffer.from('')); // Placeholder, actually use stream
-            });
+        const downloadResult = await cloudinary.uploader.upload(req.file.path, {
+            resource_type: 'auto',
+            folder: 'messenger/temp'
+        });
+
+        // Use the secure_url from the uploaded file to download
+        const fileUrl = req.file.secure_url || req.file.path;
+
+        // Fetch the file content and write to temp path
+        const response = await fetch(fileUrl);
+        if (!response.ok) throw new Error('Failed to download file from Cloudinary');
+
+        const arrayBuffer = await response.arrayBuffer();
+        fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
     } catch (e) {
         console.error("Error downloading from Cloudinary:", e);
+        return res.status(500).json({ message: "Error processing uploaded file." });
     }
 
-    // 2. Stream and Parse CSV (using Cloudinary URL if available, or local temp)
-    const filePath = req.file.path; // Cloudinary URL or temp path
-
-    fs.createReadStream(filePath)
+    // 2. Stream and Parse CSV
+    fs.createReadStream(tempPath)
         .pipe(csv())
         .on('data', (data) => results.push(data))
         .on('error', async (err) => {
             // Clean up temp file
             if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+            console.error("CSV Parse Error:", err);
             res.status(400).json({ message: "Error parsing CSV file." });
         })
         .on('end', async () => {

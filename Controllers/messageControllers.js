@@ -1,3 +1,4 @@
+import https from 'https';
 import csv from 'csv-parser';
 import fs from 'fs';
 import { sql } from "../Config/db.js";
@@ -62,18 +63,31 @@ export const uploadBulkContacts = async (req, res) => {
 
     try {
         // Get the file URL from Cloudinary (already uploaded by multer-storage-cloudinary)
-        const fileUrl = req.file.secure_url || req.file.path;
+        const fileUrl = req.file.secure_url;
+
+        console.log("File URL:", fileUrl);
+        console.log("req.file:", JSON.stringify(req.file, null, 2));
 
         if (!fileUrl) {
-            throw new Error('No file URL available from uploaded file');
+            throw new Error('No secure_url available from uploaded file. Check Cloudinary configuration.');
         }
 
-        // Fetch the file content and write to temp path
-        const response = await fetch(fileUrl);
-        if (!response.ok) throw new Error(`Failed to download file from Cloudinary: ${response.statusText}`);
-
-        const arrayBuffer = await response.arrayBuffer();
-        fs.writeFileSync(tempPath, Buffer.from(arrayBuffer));
+        // Download file using https module
+        await new Promise((resolve, reject) => {
+            https.get(fileUrl, (response) => {
+                if (response.statusCode !== 200) {
+                    reject(new Error(`Failed to download: ${response.statusCode}`));
+                    return;
+                }
+                const chunks = [];
+                response.on('data', chunk => chunks.push(chunk));
+                response.on('end', () => {
+                    fs.writeFileSync(tempPath, Buffer.concat(chunks));
+                    resolve();
+                });
+                response.on('error', reject);
+            }).on('error', reject);
+        });
     } catch (e) {
         console.error("Error downloading from Cloudinary:", e);
         return res.status(500).json({ message: "Error processing uploaded file." });

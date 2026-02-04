@@ -62,11 +62,11 @@ export const uploadBulkContacts = async (req, res) => {
                     if (results.length === 0) return res.status(400).json({ message: "The CSV file is empty." });
 
                     let invalidCount = 0;
-                    
+
                     // 1. Filter and Transform
                     const contactsToInsert = results.reduce((acc, row) => {
                         const rawNumber = String(row.contact || row.whatsapp_number || '').replace(/\D/g, '');
-                        
+
                         // Validation: Must be at least 10 digits
                         if (rawNumber.length >= 10) {
                             acc.push({
@@ -87,9 +87,9 @@ export const uploadBulkContacts = async (req, res) => {
 
                     if (contactsToInsert.length > 0) {
                         const insertedRows = await sql`
-                            INSERT INTO contacts ${sql(contactsToInsert, 
-                                'full_name', 'whatsapp_number', 'organization', 'location', 'contact_group', 'created_by'
-                            )}
+                            INSERT INTO contacts (full_name, whatsapp_number, organization, location, contact_group, created_by)
+                            SELECT * FROM json_to_recordset(${JSON.stringify(contactsToInsert)})
+                            AS x(full_name TEXT, whatsapp_number TEXT, organization TEXT, location TEXT, contact_group TEXT, created_by INTEGER)
                             ON CONFLICT (whatsapp_number) DO NOTHING
                             RETURNING id
                         `;

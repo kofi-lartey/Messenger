@@ -84,6 +84,7 @@ export const uploadBulkContacts = async (req, res) => {
                     }, []);
 
                     let insertedCount = 0;
+                    let insertedIds = [];
 
                     if (contactsToInsert.length > 0) {
                         const insertedRows = await sql`
@@ -95,6 +96,7 @@ export const uploadBulkContacts = async (req, res) => {
                             RETURNING id
                         `;
                         insertedCount = insertedRows.length;
+                        insertedIds = insertedRows.map(row => row.id);
                     }
 
                     // 2. Calculate Final Summary
@@ -108,6 +110,7 @@ export const uploadBulkContacts = async (req, res) => {
                             duplicates_skipped: duplicateCount,
                             invalid_numbers_skipped: invalidCount
                         },
+                        inserted_ids: insertedIds,
                         createdBy: {
                             id: req.user.id,
                             full_name: req.user.full_name
@@ -214,13 +217,13 @@ export const createBroadcast = async (req, res) => {
     }
 };
 
-// --- TRIGGER BROADCAST (IMMEDIATE SENDING) ---
-export const triggerBroadcast = async (req, res) => {
+// --- TRIGGER BROADCAST IMMEDIATELY ---
+export const triggerBroadcastImmediately = async (req, res) => {
     if (req.user.status !== 'activate') {
         return res.status(403).json({ message: "Unauthorized. Please activate your account." });
     }
 
-    const { broadcast_id, method } = req.body;
+    const { broadcast_id, method, organization, contact_group, interval_ms, batch_size } = req.body;
 
     try {
         // Get the broadcast message
@@ -233,37 +236,157 @@ export const triggerBroadcast = async (req, res) => {
         }
 
         const { message_body, media_url } = messageResult[0];
-        const contacts = await sql`SELECT full_name, whatsapp_number FROM contacts`;
+
+        // Build filtered query based on organization and/or contact_group
+        let contactsQuery = `SELECT id, full_name, whatsapp_number FROM contacts WHERE created_by = ${req.user.id}`;
+        const queryParams = [];
+
+        if (organization && organization !== 'ALL') {
+            queryParams.push(`organization = ${queryParams.length + 1}`);
+        }
+
+        if (contact_group && contact_group !== 'ALL') {
+            queryParams.push(`contact_group = ${queryParams.length + 1}`);
+        }
+
+        if (queryParams.length > 0) {
+            contactsQuery += ' AND ' + queryParams.join(' AND ');
+        }
+
+        const contacts = await sql(contactsQuery,
+            ...(organization && organization !== 'ALL' ? [organization] : []),
+            ...(contact_group && contact_group !== 'ALL' ? [contact_group] : [])
+        );
 
         if (contacts.length === 0) {
-            return res.status(404).json({ message: "No contacts to message." });
+            return res.status(404).json({ message: "No contacts found matching the filters." });
         }
 
         // Send based on method
         if (method === 'chat_api') {
             // Chat API - generate links
-            const chatApiResult = await sendBroadcastViaChatApi(broadcast_id);
+            const chatApiResult = await sendBroadcastViaChatApi(broadcast_id, contacts);
             return res.status(200).json({
                 success: true,
+                type: 'immediate',
                 method: 'chat_api',
                 message: `Generated ${chatApiResult.data?.totalRecipients || 0} WhatsApp links`,
+                filters: { organization, contact_group },
+                recipient_count: contacts.length,
                 ...chatApiResult
             });
         } else {
-            // WhatsApp Web - send actual messages
-            processBulkMessages(contacts, message_body, media_url);
+            // WhatsApp Web - send actual messages with rate limiting
+            const result = await processBulkMessages(contacts, message_body, media_url, {
+                intervalMs: interval_ms || 5000,
+                batchSize: batch_size || 10,
+                onProgress: (progress) => {
+                    console.log(`[Broadcast] Progress: ${progress.sent}/${progress.total}`);
+                }
+            });
 
             return res.status(200).json({
                 success: true,
+                type: 'immediate',
                 method: 'whatsapp_web',
-                message: `🚀 Started sending to ${contacts.length} contacts...`,
-                note: 'Messages sent in background'
+                message: result.message,
+                filters: { organization, contact_group },
+                recipient_count: contacts.length,
+                rate_limit: {
+                    interval_ms: interval_ms || 5000,
+                    batch_size: batch_size || 10
+                },
+                result: result
             });
         }
 
     } catch (error) {
         console.error("Broadcast error:", error);
         res.status(500).json({ message: "Server error triggering broadcast." });
+    }
+};
+
+// --- TRIGGER SCHEDULED BROADCAST ---
+export const triggerBroadcastSchedule = async (req, res) => {
+    if (req.user.status !== 'activate') {
+        return res.status(403).json({ message: "Unauthorized. Please activate your account." });
+    }
+
+    const { broadcast_id, organization, contact_group, scheduled_time, method, interval_ms, batch_size } = req.body;
+
+    if (!scheduled_time) {
+        return res.status(400).json({ message: "scheduled_time is required for scheduled broadcasts." });
+    }
+
+    try {
+        // Get the broadcast message
+        const messageResult = await sql`
+            SELECT id, message_body, media_url FROM broadcastmessages WHERE id = ${broadcast_id}
+        `;
+
+        if (messageResult.length === 0) {
+            return res.status(404).json({ message: "Message template not found." });
+        }
+
+        const { message_body, media_url } = messageResult[0];
+
+        // Build filtered query based on organization and/or contact_group
+        let contactsQuery = `SELECT id, full_name, whatsapp_number FROM contacts WHERE created_by = ${req.user.id}`;
+        const queryParams = [];
+
+        if (organization && organization !== 'ALL') {
+            queryParams.push(`organization = ${queryParams.length + 1}`);
+        }
+
+        if (contact_group && contact_group !== 'ALL') {
+            queryParams.push(`contact_group = ${queryParams.length + 1}`);
+        }
+
+        if (queryParams.length > 0) {
+            contactsQuery += ' AND ' + queryParams.join(' AND ');
+        }
+
+        const contacts = await sql(contactsQuery,
+            ...(organization && organization !== 'ALL' ? [organization] : []),
+            ...(contact_group && contact_group !== 'ALL' ? [contact_group] : [])
+        );
+
+        if (contacts.length === 0) {
+            return res.status(404).json({ message: "No contacts found matching the filters." });
+        }
+
+        // Default rate limiting settings
+        const rateLimitSettings = {
+            interval_ms: interval_ms || 5000,
+            batch_size: batch_size || 10,
+            use_chat_api: method === 'chat_api'
+        };
+
+        // Create scheduled entry with rate limiting settings
+        const scheduledResult = await sql`
+            INSERT INTO scheduledmessages (broadcast_id, created_by, scheduled_time, status, use_chat_api, filters, rate_limit_settings, contact_count)
+            VALUES (${broadcast_id}, ${req.user.id}, ${new Date(scheduled_time).toISOString()}, 'pending', ${method === 'chat_api'}, ${JSON.stringify({ organization, contact_group })}, ${JSON.stringify(rateLimitSettings)}, ${contacts.length})
+            RETURNING *
+        `;
+
+        return res.status(200).json({
+            success: true,
+            type: 'scheduled',
+            message: "Broadcast scheduled successfully!",
+            data: {
+                schedule_id: scheduledResult[0].id,
+                broadcast_id: broadcast_id,
+                scheduled_time: scheduled_time,
+                filters: { organization, contact_group },
+                recipient_count: contacts.length,
+                method: method || 'whatsapp_web',
+                rate_limit: rateLimitSettings
+            }
+        });
+
+    } catch (error) {
+        console.error("Schedule broadcast error:", error);
+        res.status(500).json({ message: "Server error scheduling broadcast." });
     }
 };
 

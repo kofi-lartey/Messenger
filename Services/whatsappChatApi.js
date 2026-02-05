@@ -70,8 +70,10 @@ export const processBroadcastChatApi = (recipients, messageBody) => {
 /**
  * Send broadcast via Chat API (for display/download)
  * Returns list of wa.me URLs that users can click or share
+ * @param {number} broadcastId - The broadcast message ID
+ * @param {Array} contacts - Optional: Array of contact objects to use instead of fetching all
  */
-export const sendBroadcastViaChatApi = async (broadcastId) => {
+export const sendBroadcastViaChatApi = async (broadcastId, contacts = null) => {
     try {
         // Get message template
         const messageResult = await sql`
@@ -84,17 +86,20 @@ export const sendBroadcastViaChatApi = async (broadcastId) => {
 
         const { message_body, media_url } = messageResult[0];
 
-        // Get all contacts
-        const contacts = await sql`
-            SELECT full_name, whatsapp_number FROM contacts
-        `;
+        // Use provided contacts or fetch all
+        let contactsToUse = contacts;
+        if (!contactsToUse) {
+            contactsToUse = await sql`
+                SELECT full_name, whatsapp_number FROM contacts
+            `;
+        }
 
-        if (contacts.length === 0) {
+        if (contactsToUse.length === 0) {
             return { success: false, message: "No contacts found." };
         }
 
         // Generate wa.me URLs for all contacts
-        const broadcastResults = processBroadcastChatApi(contacts, message_body);
+        const broadcastResults = processBroadcastChatApi(contactsToUse, message_body);
 
         return {
             success: true,

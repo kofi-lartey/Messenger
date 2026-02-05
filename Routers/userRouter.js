@@ -4,7 +4,8 @@ import {
     createContact,
     uploadBulkContacts,
     createBroadcast,
-    triggerBroadcast,
+    triggerBroadcastImmediately,
+    triggerBroadcastSchedule,
     getContactWhatsAppLink,
     downloadBroadcastLinks,
     getBroadcastStatus,
@@ -35,10 +36,10 @@ userRouter.post('/contacts/upload', authenticate, csvUpload, uploadBulkContacts)
 userRouter.post('/broadcast/create', authenticate, broadcastMedia, createBroadcast);
 
 // Broadcast Routes - Send Immediately
-userRouter.post('/broadcast/send', authenticate, triggerBroadcast);
+userRouter.post('/broadcast/send/immediate', authenticate, triggerBroadcastImmediately);
 
 // Broadcast Routes - Schedule
-userRouter.post('/broadcast/schedule', authenticate, broadcastMedia, createBroadcast);
+userRouter.post('/broadcast/send/scheduled', authenticate, triggerBroadcastSchedule);
 
 // Broadcast Routes - Management
 userRouter.get('/broadcasts', authenticate, getAllBroadcasts);
